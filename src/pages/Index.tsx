@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Worker, buildBoletaText, parsePeriodFromFilename } from "@/lib/boleta";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Upload, ChevronLeft, ChevronRight, Printer, Download, FileUp, Loader2, Search } from "lucide-react";
+import { Upload, ChevronLeft, ChevronRight, Printer, Download, FileUp, Loader2, Search, FileText, Info } from "lucide-react"; // Importar 'Info' icon
 import { toast } from "@/hooks/use-toast";
 import jsPDF from "jspdf";
 
@@ -65,8 +65,9 @@ const Index = () => {
       setPeriod(result.period || parsePeriodFromFilename(file.name));
       setActiveIdx(0);
       toast({ title: "Archivo cargado", description: `${ws.length} trabajadores · ${result.period?.mes} ${result.period?.anio}` });
-    } catch (e: any) {
-      toast({ title: "Error al procesar archivo", description: e?.message || "Error desconocido", variant: "destructive" });
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : "Error desconocido";
+      toast({ title: "Error al procesar archivo", description: errorMessage, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -92,6 +93,7 @@ const Index = () => {
     () => active ? buildBoletaText(active, period.mes, period.anio) : "",
     [active, period]
   );
+  const [editedBoletaText, setEditedBoletaText] = useState<string>("");
 
   const handlePrev = () => setActiveIdx(i => Math.max(0, i - 1));
   const handleNext = () => setActiveIdx(i => Math.min(workers.length - 1, i + 1));
@@ -106,14 +108,18 @@ const Index = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [workers.length]);
 
+  useEffect(() => {
+    setEditedBoletaText(boletaText);
+  }, [boletaText]);
+
   const handlePrint = () => window.print();
 
   const handlePDF = () => {
-    if (!active) return;
+    if (!active || !editedBoletaText) return; // Usar editedBoletaText para el PDF
     const pdf = new jsPDF({ unit: "mm", format: "a4" });
     pdf.setFont("courier", "normal");
     pdf.setFontSize(9);
-    const lines = boletaText.split("\n");
+    const lines = editedBoletaText.split("\n"); // Usar el texto editado
     let y = 15;
     lines.forEach(line => {
       if (y > 285) { pdf.addPage(); y = 15; }
@@ -129,6 +135,7 @@ const Index = () => {
     setActiveIdx(0);
     setSearch("");
     setPeriod({ mes: "", anio: "" });
+    setEditedBoletaText(""); // Resetear también el texto editable
   };
 
   if (!workers.length) {
@@ -136,8 +143,11 @@ const Index = () => {
       <div className="min-h-screen bg-background flex flex-col">
         <header className="border-b border-border">
           <div className="container py-4 flex items-center justify-between">
-            <h1 className="text-lg font-semibold tracking-tight">Generador de Boletas CAS · UGEL 04</h1>
-            <span className="text-xs text-muted-foreground">v1.0</span>
+          <h1 className="text-lg font-semibold tracking-tight flex items-center">
+            <img src="/cas.png" alt="Logo CAS" className="h-5 w-5 mr-2" /> {/* Imagen cas.png añadida aquí */}
+            Generador de Boletas CAS · UGEL 04 TSE
+          </h1>
+            <span className="text-xs text-muted-foreground">v1.0 (neotest-dev)</span>
           </div>
         </header>
         <main className="flex-1 flex items-center justify-center p-6">
@@ -157,13 +167,13 @@ const Index = () => {
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-4">
-                  <div className="h-14 w-14 rounded-full bg-foreground text-background flex items-center justify-center">
+                  <div className="h-14 w-14 rounded-full bg-red-600 text-background flex items-center justify-center">
                     <Upload className="h-6 w-6" />
                   </div>
                   <div>
                     <p className="text-base font-medium">Sube archivo de planilla CAS-SEDE</p>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Arrastra aquí o haz clic para seleccionar · .xlsx, .xls, .xlsm
+                      Arrastra aquí o haz clic para seleccionar .xlsx, .xls, .xlsm
                     </p>
                   </div>
                 </div>
@@ -181,7 +191,6 @@ const Index = () => {
               />
             </div>
             <div className="mt-6 text-center text-xs text-muted-foreground space-y-1">
-              <p>El sistema leerá la hoja <code className="font-mono">CAS-SEDE</code> desde la fila 7.</p>
               <p>Para mayor velocidad use archivo <code className="font-mono">.xlsx</code></p>
             </div>
           </div>
@@ -195,54 +204,71 @@ const Index = () => {
       {/* Top bar */}
       <header className="no-print border-b border-border bg-background sticky top-0 z-10">
         <div className="container py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <h1 className="text-sm font-semibold whitespace-nowrap">Boletas CAS · UGEL 04</h1>
-            <span className="text-xs text-muted-foreground hidden md:inline">{period.mes} {period.anio}</span>
-            <span className="text-xs text-muted-foreground">{workers.length} trab.</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                placeholder="Buscar nombre o DNI…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-7 h-9 w-48"
-              />
+          {/* Left Section: Title and Info */}
+          <div className="flex items-center gap-4 min-w-0 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <img src="/cas.png" alt="Logo CAS" className="h-5 w-5" />
+              <h1 className="text-sm font-semibold whitespace-nowrap">Boletas CAS · UGEL 04 TSE</h1>
             </div>
-            <Select
-              value={String(activeIdx)}
-              onValueChange={(v) => setActiveIdx(Number(v))}
-            >
-              <SelectTrigger className="h-9 w-64">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="max-h-80">
-                {filtered.map((w) => {
-                  const realIdx = workers.indexOf(w);
-                  return (
-                    <SelectItem key={realIdx} value={String(realIdx)}>
-                      {w.n}. {w.apPaterno} {w.apMaterno}, {w.nombres}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="hidden md:inline">{period.mes} {period.anio}</span>
+              <span>{workers.length} trab.</span>
+            </div>
+          </div>
+
+          {/* Right Section: Controls and Actions */}
+          <div className="flex flex-wrap items-center gap-2 lg:gap-3">
+            {/* Search and Select */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-grow">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar nombre o DNI…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-7 h-9 w-full"
+                />
+              </div>
+              <Select
+                value={String(activeIdx)}
+                onValueChange={(v) => setActiveIdx(Number(v))}
+              >
+                <SelectTrigger className="h-9 w-full sm:w-80">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-80">
+                  {filtered.map((w) => {
+                    const realIdx = workers.indexOf(w);
+                    return (
+                      <SelectItem key={realIdx} value={String(realIdx)}>
+                        {w.n}. {w.apPaterno} {w.apMaterno}, {w.nombres}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Navigation Buttons */}
             <Button size="icon" variant="outline" className="h-9 w-9" onClick={handlePrev} disabled={activeIdx === 0}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button size="icon" variant="outline" className="h-9 w-9" onClick={handleNext} disabled={activeIdx === workers.length - 1}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button size="sm" variant="outline" className="h-9" onClick={handlePrint}>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 lg:ml-4">
+            <Button size="sm" variant="default" className="h-9 bg-blue-400 text-white hover:bg-blue-500" onClick={handlePrint}>
               <Printer className="h-4 w-4 mr-1.5" /> Imprimir
             </Button>
-            <Button size="sm" className="h-9" onClick={handlePDF}>
+            <Button size="sm" variant="destructive" className="h-9" onClick={handlePDF}>
               <Download className="h-4 w-4 mr-1.5" /> PDF
             </Button>
-            <Button size="sm" variant="ghost" className="h-9" onClick={reset}>
+            <Button size="sm" variant="default" className="h-9 bg-green-500 text-white hover:bg-green-600" onClick={reset}>
               <FileUp className="h-4 w-4 mr-1.5" /> Nuevo
             </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -252,9 +278,25 @@ const Index = () => {
         <div
           id="boleta-print"
           className="bg-white shadow-sm border border-border w-full max-w-[820px] mx-auto p-8 md:p-12"
-          style={{ minHeight: "29.7cm" }}
+          // Se elimina el minHeight fijo para que se ajuste al contenido
         >
-          <pre className="boleta-mono">{boletaText}</pre>
+          {/* Aviso de editabilidad */}
+          <div className="no-print flex items-center gap-2 p-2 mb-4 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert">
+            <Info className="h-4 w-4 flex-shrink-0" />
+            <span className="sr-only">Info</span>
+            <div>
+              <span className="font-medium">Nota:</span> El texto de la boleta es editable. Puedes corregir errores o añadir datos faltantes directamente aquí.
+            </div>
+          </div>
+
+          {/* Usar un textarea para hacer el texto editable */}
+          <textarea
+            className="boleta-mono w-full h-full min-h-[calc(29.7cm - 6rem)] resize-none border-none focus:outline-none" // Estilos para que el textarea ocupe el espacio y tenga un min-height
+            value={editedBoletaText}
+            onChange={(e) => setEditedBoletaText(e.target.value)}
+            rows={editedBoletaText.split("\n").length} // Número de filas inicial basado en el contenido
+            readOnly={loading} // Hacerlo de solo lectura mientras se carga el archivo
+          />
         </div>
       </main>
     </div>
