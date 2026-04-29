@@ -89,32 +89,25 @@ function txt(v: CellValue | undefined): string {
 }
 
 function money(v: CellValue | undefined): string {
-  if (v === null || v === undefined || v === "") return "";
+  if (v === null || v === undefined || v === "") {
+    return "0.00";
+  }
 
-  // Si es fórmula de Excel
-  if (typeof v === "object" && v !== null) {
+  if (typeof v === "object") {
     if ("result" in v) {
       const n = Number(v.result);
-
-      if (Number.isNaN(n)) return "";
-
-      return n.toFixed(2);
+      return Number.isNaN(n) ? "0.00" : n.toFixed(2);
     }
 
     if ("text" in v) {
       const n = Number(v.text);
-
-      if (Number.isNaN(n)) return "";
-
-      return n.toFixed(2);
+      return Number.isNaN(n) ? "0.00" : n.toFixed(2);
     }
   }
 
   const n = Number(v);
 
-  if (Number.isNaN(n)) return "";
-
-  return n.toFixed(2);
+  return Number.isNaN(n) ? "0.00" : n.toFixed(2);
 }
 
 function colLetterToNumber(col: string): number {
