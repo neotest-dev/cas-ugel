@@ -8,6 +8,7 @@ import {
 import { Upload, ChevronLeft, ChevronRight, Printer, Download, FileUp, Loader2, Search, FileText, Info } from "lucide-react"; // Importar 'Info' icon
 import { toast } from "@/hooks/use-toast";
 import jsPDF from "jspdf";
+import ExcelWorker from "../workers/excelWorker.ts?worker";
 
 const HEAVY_FILE_BYTES = 3 * 1024 * 1024; // 3 MB
 
@@ -25,11 +26,9 @@ const Index = () => {
   // Mantener instancia única del Web Worker
   const getWorker = useCallback(() => {
     if (!workerRef.current) {
-      workerRef.current = new window.Worker(
-        new URL("../workers/excelWorker.ts", import.meta.url),
-        { type: "module" }
-      );
+      workerRef.current = new ExcelWorker();
     }
+
     return workerRef.current;
   }, []);
 
