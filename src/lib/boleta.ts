@@ -27,6 +27,39 @@ export interface Worker {
   totalLiquido: string;
 }
 
+export interface CategoriaPlanilla {
+  id: string;
+  label: string;
+  match: string[];
+}
+
+export const CATEGORIAS_PLANILLA: CategoriaPlanilla[] = [
+  { id: "sede", label: "CAS SEDE", match: ["SEDE"] },
+  { id: "jec", label: "CAS JEC", match: ["JEC"] },
+  { id: "orquestando", label: "CAS ORQUESTANDO", match: ["ORQUESTANDO"] },
+  { id: "seho", label: "CAS SEHO", match: ["SEHO", "HOSPITALARIO"] },
+  { id: "ebe", label: "CAS EBE INCLUSIVAS", match: ["EBE", "INCLUSIVAS"] },
+  { id: "winanq", label: "CAS WINANQ", match: ["WINANQ", "WINAQ", "WIÑANQ", "WIÑAQ"] },
+  { id: "convivencia", label: "CAS CONVIVENCIA", match: ["CONVIVENCIA"] },
+  { id: "mantenimiento", label: "CAS MANTENIMIENTO", match: ["MANTENIMIENTO"] },
+];
+
+export function normalizeCategoryText(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+export function inferCategoryIdFromText(text: string): string | null {
+  const normalized = normalizeCategoryText(text);
+  const matched = CATEGORIAS_PLANILLA.find((category) =>
+    category.match.some((match) => normalized.includes(normalizeCategoryText(match)))
+  );
+
+  return matched?.id ?? null;
+}
+
 const MESES = [
   "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO",
   "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"

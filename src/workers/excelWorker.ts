@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import ExcelJS, { CellValue } from "exceljs";
+import { inferCategoryIdFromText } from "@/lib/boleta";
 
 type RowValues = CellValue[];
 
@@ -13,6 +14,7 @@ type MsgOut =
   ok: true;
   workers: Worker[];
   period: { mes: string; anio: string };
+  categoryId: string | null;
 }
     | {
   ok: false;
@@ -120,35 +122,55 @@ function colLetterToNumber(col: string): number {
   return num;
 }
 
-const COLUMN_MAP: Record<keyof Worker, string[]> = {
-  n:["__COL_A__"],
-  dni:["__COL_B__"],
-  apPaterno:["__COL_C__"],
-  apMaterno:["__COL_D__"],
-  nombres:["__COL_E__"],
-
-  fechaNac:["__COL_BF__"],
-  cargo:["__COL_G__"],
-
-  codEssalud:["__COL_BQ__"],
-  cuentaBanco:["__COL_AD__"],
-  leyendaRD:["__COL_BU__"],
-
-  sistemaPensionario:["__COL_BG__"],
-  cussp:["__COL_BO__"],
-
-  fechaAfiliacion:["__COL_BJ__"],
-  fechaDevengue:["__COL_BK__"],
-  aporteObligatorio:["__COL_BL__"],
-  comision:["__COL_BM__"],
-  primaSeguro:["__COL_BN__"],
-
-  // ESTOS AÚN POR HEADER (como pediste)
-  montoMensual:["__COL_P__"],
-  descuentoPension:["__COL_BH__"],
-  totalDscto:["__COL_AA__"],
-  totalLiquido:["__COL_AB__"]
+type ColumnSpec = {
+  fallback?: string[];
+  headers?: string[];
 };
+
+const COLUMN_MAP: Record<keyof Worker, ColumnSpec> = {
+  n: { fallback: ["A"], headers: ["N°", "Nº"] },
+  dni: { fallback: ["B"], headers: ["DNI", "N° DNI"] },
+  apPaterno: { fallback: ["C"], headers: ["APELLIDO PATERNO"] },
+  apMaterno: { fallback: ["D"], headers: ["APELLIDO MATERNO"] },
+  nombres: { fallback: ["E"], headers: ["NOMBRES"] },
+  fechaNac: { fallback: ["BF"], headers: ["FECHA NACIMIENTO"] },
+  cargo: { fallback: ["G", "F"], headers: ["CARGO"] },
+  codEssalud: { fallback: ["BQ"], headers: ["ESSALUD", "CODIGO ESSALUD", "COD. ESSALUD"] },
+  cuentaBanco: { fallback: ["AD"], headers: ["Nº CUENTA BANCO LA NACION", "N° CUENTA BANCO LA NACION", "NRO CUENTA BANCO LA NACION"] },
+  leyendaRD: { fallback: ["BU"], headers: ["LEYENDA"] },
+  sistemaPensionario: { fallback: ["BG"], headers: ["SISTEMA PENSIONARIO"] },
+  cussp: { fallback: ["BO"], headers: ["CUSSP"] },
+  fechaAfiliacion: { fallback: ["BJ"], headers: ["FECHA AFILIACION", "F. AFILIACION"] },
+  fechaDevengue: { fallback: ["BK"], headers: ["FECHA DEVENGUE", "F. DEVENGUE"] },
+  aporteObligatorio: { fallback: ["BL"], headers: ["APORTE OBLIG"] },
+  comision: { fallback: ["BM"], headers: ["COMISION"] },
+  primaSeguro: { fallback: ["BN"], headers: ["PRIMA SEG"] },
+  montoMensual: { fallback: ["P", "H"], headers: ["MONTO MENSUAL", "MONTO BRUTO", "HONORARIO"] },
+  descuentoPension: { fallback: ["BH", "S"], headers: ["MONTO SISTEMA PENSION", "ONP", "PRIMA", "INTEGRA", "PROFUTURO", "HABITAT"] },
+  totalDscto: { fallback: ["AA"], headers: ["TOTAL DSCTO"] },
+  totalLiquido: { fallback: ["AB", "AC"], headers: ["TOTAL LIQUIDO", "TOTAL A RECIBIR"] }
+};
+
+function findHeaderColumn(headers: string[], names: string[]): number | undefined {
+  for (let i = 1; i < headers.length; i++) {
+    const header = headers[i] ?? "";
+    if (names.some((name) => header.includes(name))) {
+      return i;
+    }
+  }
+}
+
+function resolveColumn(spec: ColumnSpec, headers: string[]): number | undefined {
+  const byHeader = spec.headers ? findHeaderColumn(headers, spec.headers) : undefined;
+  if (byHeader) return byHeader;
+
+  if (!spec.fallback) return undefined;
+
+  for (const letter of spec.fallback) {
+    const col = colLetterToNumber(letter);
+    if (headers[col] !== undefined) return col;
+  }
+}
 
 self.onmessage = async (e: MessageEvent<MsgIn>) => {
   try {
@@ -172,6 +194,11 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
       rows[i] = row.values as RowValues;
     }
 
+    const titleText = [rows[1], rows[2], rows[3]]
+      .flatMap((row) => (row ?? []).map((value) => txt(value)))
+      .filter(Boolean)
+      .join(" ");
+
     const h1 = rows[4] ?? [];
     const h2 = rows[5] ?? [];
     const h3 = rows[6] ?? [];
@@ -190,25 +217,7 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
     const col: Partial<Record<keyof Worker, number>> = {};
 
     (Object.keys(COLUMN_MAP) as (keyof Worker)[]).forEach((key) => {
-      const names = COLUMN_MAP[key];
-
-      if (names[0].startsWith("__COL_")) {
-        const letter = names[0]
-            .replace("__COL_", "")
-            .replace("__", "");
-
-        col[key] = colLetterToNumber(letter);
-        return;
-      }
-
-      for (let i = 1; i < headers.length; i++) {
-        const h = headers[i] ?? "";
-
-        if (names.some(name => h.includes(name))) {
-          col[key] = i;
-          break;
-        }
-      }
+      col[key] = resolveColumn(COLUMN_MAP[key], headers);
     });
 
     const workers: Worker[] = [];
@@ -249,7 +258,8 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
     const ok: MsgOut = {
       ok: true,
       workers,
-      period: parsePeriodFromFilename(filename)
+      period: parsePeriodFromFilename(filename),
+      categoryId: inferCategoryIdFromText(titleText)
     };
 
     self.postMessage(ok);

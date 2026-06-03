@@ -113,16 +113,35 @@ All colors MUST be HSL.
   color: #000;
 }
 
+.print-only {
+  display: none;
+}
+
 @media print {
+  html,
+  body {
+    background: white !important;
+  }
+
   body * { visibility: hidden; }
   #boleta-print, #boleta-print * { visibility: visible; }
   #boleta-print {
-    position: absolute;
-    left: 0; top: 0;
-    width: 100%;
-    padding: 1.5cm;
+    position: static;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    padding: 0;
     background: white;
+    border: 0;
+    box-shadow: none;
   }
   .no-print { display: none !important; }
+  .print-only {
+    display: block !important;
+  }
+  .print-text {
+    white-space: pre-wrap;
+    margin: 0;
+  }
   @page { size: A4; margin: 1cm; }
 }
