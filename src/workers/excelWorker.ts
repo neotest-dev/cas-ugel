@@ -10,16 +10,21 @@ type MsgIn = {
 };
 
 type MsgOut =
-    | {
-  ok: true;
-  workers: Worker[];
-  period: { mes: string; anio: string };
-  categoryId: string | null;
-}
-    | {
-  ok: false;
-  error: string;
-};
+  | {
+    ok: true;
+    workers: Worker[];
+    period: { mes: string; anio: string };
+    categoryId: string | null;
+    debug?: {
+      headerRowIdx: number;
+      col: Partial<Record<keyof Worker, number>>;
+      headers: string[];
+    };
+  }
+  | {
+    ok: false;
+    error: string;
+  };
 
 export interface Worker {
   n: string;
@@ -32,6 +37,7 @@ export interface Worker {
   codEssalud: string;
   cuentaBanco: string;
   leyendaRD: string;
+  leyendaMensual: string;
   sistemaPensionario: string;
   cussp: string;
   fechaAfiliacion: string;
@@ -41,13 +47,21 @@ export interface Worker {
   primaSeguro: string;
   montoMensual: string;
   descuentoPension: string;
+  onp: string;
+  prima: string;
+  integra: string;
+  profuturo: string;
+  habitat: string;
   totalDscto: string;
+  otrosDsctos: string;
+  dsctoEntidades: string;
+  dsctoJudicial: string;
   totalLiquido: string;
 }
 
 const MESES = [
-  "ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO",
-  "JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"
+  "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO",
+  "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"
 ];
 
 function parsePeriodFromFilename(filename: string): { mes: string; anio: string } {
@@ -64,12 +78,14 @@ function parsePeriodFromFilename(filename: string): { mes: string; anio: string 
 }
 
 function norm(v: CellValue | undefined): string {
-  return String(v ?? "")
-      .replace(/\n/g, " ")
-      .replace(/\r/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .toUpperCase();
+  return txt(v)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/º/g, "°")
+    .replace(/[^a-zA-Z0-9°]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
 }
 
 function txt(v: CellValue | undefined): string {
@@ -77,14 +93,26 @@ function txt(v: CellValue | undefined): string {
 
   if (v instanceof Date) {
     return `${String(v.getDate()).padStart(2, "0")}/${String(
-        v.getMonth() + 1
+      v.getMonth() + 1
     ).padStart(2, "0")}/${v.getFullYear()}`;
   }
 
   if (typeof v === "object") {
+    if ("richText" in v && Array.isArray(v.richText)) {
+      return v.richText.map(item => String(item.text ?? "")).join("");
+    }
     if ("text" in v) return String(v.text).trim();
-
-    if ("result" in v) return String(v.result ?? "").trim();
+    if ("result" in v) {
+      if (v.result === null || v.result === undefined) return "";
+      if (typeof v.result === "object") {
+        return txt(v.result as any);
+      }
+      return String(v.result).trim();
+    }
+    if ("formula" in v) {
+      return "";
+    }
+    return "";
   }
 
   return String(v).trim();
@@ -97,6 +125,10 @@ function money(v: CellValue | undefined): string {
 
   if (typeof v === "object") {
     if ("result" in v) {
+      if (v.result === null || v.result === undefined) return "0.00";
+      if (typeof v.result === "object") {
+        return money(v.result as any);
+      }
       const n = Number(v.result);
       return Number.isNaN(n) ? "0.00" : n.toFixed(2);
     }
@@ -105,9 +137,18 @@ function money(v: CellValue | undefined): string {
       const n = Number(v.text);
       return Number.isNaN(n) ? "0.00" : n.toFixed(2);
     }
+
+    if ("richText" in v && Array.isArray(v.richText)) {
+      const textVal = v.richText.map(item => String(item.text ?? "")).join("");
+      const cleanVal = textVal.replace(/[^\d.-]/g, "");
+      const n = Number(cleanVal);
+      return Number.isNaN(n) ? "0.00" : n.toFixed(2);
+    }
+    return "0.00";
   }
 
-  const n = Number(v);
+  const cleanVal = String(v).replace(/[^\d.-]/g, "");
+  const n = Number(cleanVal);
 
   return Number.isNaN(n) ? "0.00" : n.toFixed(2);
 }
@@ -127,37 +168,61 @@ type ColumnSpec = {
   headers?: string[];
 };
 
+function isDataRow(row: RowValues | undefined): boolean {
+  if (!row) return false;
+  for (let i = 1; i < row.length; i++) {
+    const val = String(row[i] ?? "").trim();
+    if (/^\d{8}$/.test(val)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 const COLUMN_MAP: Record<keyof Worker, ColumnSpec> = {
-  n: { fallback: ["A"], headers: ["N°", "Nº"] },
-  dni: { fallback: ["B"], headers: ["DNI", "N° DNI"] },
-  apPaterno: { fallback: ["C"], headers: ["APELLIDO PATERNO"] },
-  apMaterno: { fallback: ["D"], headers: ["APELLIDO MATERNO"] },
-  nombres: { fallback: ["E"], headers: ["NOMBRES"] },
-  fechaNac: { fallback: ["BF"], headers: ["FECHA NACIMIENTO"] },
-  cargo: { fallback: ["G", "F"], headers: ["CARGO"] },
-  codEssalud: { fallback: ["BQ"], headers: ["ESSALUD", "CODIGO ESSALUD", "COD. ESSALUD"] },
-  cuentaBanco: { fallback: ["AD"], headers: ["Nº CUENTA BANCO LA NACION", "N° CUENTA BANCO LA NACION", "NRO CUENTA BANCO LA NACION"] },
-  leyendaRD: { fallback: ["BU"], headers: ["LEYENDA"] },
-  sistemaPensionario: { fallback: ["BG"], headers: ["SISTEMA PENSIONARIO"] },
-  cussp: { fallback: ["BO"], headers: ["CUSSP"] },
-  fechaAfiliacion: { fallback: ["BJ"], headers: ["FECHA AFILIACION", "F. AFILIACION"] },
-  fechaDevengue: { fallback: ["BK"], headers: ["FECHA DEVENGUE", "F. DEVENGUE"] },
-  aporteObligatorio: { fallback: ["BL"], headers: ["APORTE OBLIG"] },
-  comision: { fallback: ["BM"], headers: ["COMISION"] },
-  primaSeguro: { fallback: ["BN"], headers: ["PRIMA SEG"] },
-  montoMensual: { fallback: ["P", "H"], headers: ["MONTO MENSUAL", "MONTO BRUTO", "HONORARIO"] },
-  descuentoPension: { fallback: ["BH", "S"], headers: ["MONTO SISTEMA PENSION", "ONP", "PRIMA", "INTEGRA", "PROFUTURO", "HABITAT"] },
+  n: { fallback: ["A"], headers: ["N°", "Nº", "N.", "NUMERO", "NUM"] },
+  dni: { fallback: ["B"], headers: ["DNI", "N° DNI", "Nº DNI", "DOCUMENTO DE IDENTIDAD", "DOC. IDENTIDAD", "DOCUMENTO"] },
+  apPaterno: { fallback: ["C"], headers: ["APELLIDO PATERNO", "AP. PATERNO", "APE. PATERNO", "PATERNO"] },
+  apMaterno: { fallback: ["D"], headers: ["APELLIDO MATERNO", "AP. MATERNO", "APE. MATERNO", "MATERNO"] },
+  nombres: { fallback: ["E"], headers: ["NOMBRES", "NOMBRE"] },
+  fechaNac: { fallback: ["BF"], headers: ["FECHA NACIMIENTO", "FECHA DE NACIMIENTO", "FEC. NACIMIENTO", "FEC. NAC.", "F. NAC."] },
+  cargo: { fallback: ["G", "F"], headers: ["CARGO", "PUESTO", "CARGO/PUESTO"] },
+  codEssalud: { fallback: ["BQ"], headers: ["CODIGO ESSALUD", "COD. ESSALUD", "COD.ESSALUD", "ESSALUD AUTOGENERADO", "AUTOGENERADO", "COD. AUTOGENERADO", "CODIGO AUTOGENERADO"] },
+  cuentaBanco: { fallback: ["AD"], headers: ["Nº CUENTA BANCO LA NACION", "N° CUENTA BANCO LA NACION", "NRO CUENTA BANCO LA NACION", "CUENTA BANCO LA NACION", "NRO. CTA BANCO", "NRO. CUENTA", "CTA. BANCO", "CTA BANCO", "CUENTA BANCO", "BANCO LA NACION", "BANCO DE LA NACION"] },
+  leyendaRD: { fallback: ["BU"], headers: ["LEYENDA - RD"] },
+  leyendaMensual: { fallback: ["BT"], headers: ["LEYENDA MENSUAL"] },
+  sistemaPensionario: { fallback: ["BG"], headers: ["SISTEMA PENSIONARIO", "SIST. PENSION", "SIST. PENS.", "REG. PENSION", "REGIMEN PENSIONARIO", "AFP/ONP"] },
+  cussp: { fallback: ["BO"], headers: ["CUSSP", "CODIGO CUSSP", "N° CUSSP", "Nº CUSSP"] },
+  fechaAfiliacion: { fallback: ["BJ"], headers: ["FECHA DE INGRESO DE REGISTRO", "FECHA INGRESO DE REGISTRO", "FECHA DE INGRESO", "FECHA INGRESO", "FECHA AFILIACION", "F. AFILIACION", "FEC. AFIL.", "FECHA DE AFILIACION"] },
+  fechaDevengue: { fallback: ["BK"], headers: ["FECHA DE TERMINO DE REGISTRO", "FECHA TERMINO DE REGISTRO", "FECHA DE TERMINO", "FECHA TERMINO", "FECHA DEVENGUE", "F. DEVENGUE", "FEC. DEV.", "FECHA DE DEVENGUE"] },
+  aporteObligatorio: { fallback: ["BL"], headers: ["APORTE OBLIGATORIO", "APORTE OBLIG", "APORTE OB."] },
+  comision: { fallback: ["BM"], headers: ["COMISION", "COM. VARIABLE", "COMIS."] },
+  primaSeguro: { fallback: ["BN"], headers: ["PRIMA SEGURO", "PRIMA SEG", "PRIMA SEG.", "SEG.", "SEGURO"] },
+  montoMensual: { fallback: ["P", "H"], headers: ["PAGO TOTAL MENSUAL"] },
+  descuentoPension: { fallback: ["BH", "S"], headers: ["MONTO SISTEMA PENSION", "ONP", "PRIMA", "INTEGRA", "PROFUTURO", "HABITAT", "DESCUENTO PENSION", "TOT. DSCTO. PENS"] },
+  onp: { fallback: ["S"], headers: ["ONP", "ONP 13%", "DECRETO LEY 19990", "D.L. 19990", "19990"] },
+  prima: { fallback: ["T"], headers: ["PRIMA"] },
+  integra: { fallback: ["U"], headers: ["INTEGRA"] },
+  profuturo: { fallback: ["V"], headers: ["PROFUTURO"] },
+  habitat: { fallback: ["W"], headers: ["HABITAT", "HABITAD"] },
   totalDscto: { fallback: ["AA"], headers: ["TOTAL DSCTO"] },
-  totalLiquido: { fallback: ["AB", "AC"], headers: ["TOTAL LIQUIDO", "TOTAL A RECIBIR"] }
+  otrosDsctos: { headers: ["OTROS DSCTOS", "OTROS DESCUENTOS"] },
+  dsctoEntidades: { headers: ["DESCUENTO ENTIDADES", "DSCTO ENTIDADES", "ENTIDADES"] },
+  dsctoJudicial: { headers: ["DSCTO JUDICIAL", "DESCUENTO JUDICIAL", "JUDICIAL"] },
+  totalLiquido: { fallback: ["AB", "AC"], headers: ["TOTAL LIQUIDO"] }
 };
 
 function findHeaderColumn(headers: string[], names: string[]): number | undefined {
   for (let i = 1; i < headers.length; i++) {
     const header = headers[i] ?? "";
-    if (names.some((name) => header.includes(name))) {
-      return i;
+    for (const name of names) {
+      const normalizedName = norm(name);
+      if (normalizedName && header.includes(normalizedName)) {
+        return i;
+      }
     }
   }
+  return undefined;
 }
 
 function resolveColumn(spec: ColumnSpec, headers: string[]): number | undefined {
@@ -167,8 +232,7 @@ function resolveColumn(spec: ColumnSpec, headers: string[]): number | undefined 
   if (!spec.fallback) return undefined;
 
   for (const letter of spec.fallback) {
-    const col = colLetterToNumber(letter);
-    if (headers[col] !== undefined) return col;
+    return colLetterToNumber(letter);
   }
 }
 
@@ -187,11 +251,16 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
       return;
     }
 
-    const rows: RowValues[] = [];
+    const rows: CellValue[][] = [];
+    const totalRows = Math.max(300, ws.rowCount || 0);
+    const limitRows = Math.min(1000, totalRows);
 
-    for (let i = 1; i <= 100; i++) {
+    for (let i = 1; i <= limitRows; i++) {
       const row = ws.getRow(i);
-      rows[i] = row.values as RowValues;
+      rows[i] = [];
+      for (let c = 1; c <= 120; c++) {
+        rows[i][c] = row.getCell(c).value;
+      }
     }
 
     const titleText = [rows[1], rows[2], rows[3]]
@@ -199,19 +268,44 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
       .filter(Boolean)
       .join(" ");
 
-    const h1 = rows[4] ?? [];
-    const h2 = rows[5] ?? [];
-    const h3 = rows[6] ?? [];
+    // Buscar fila de encabezados dinámicamente
+    let headerRowIdx = 5; // default fallback
+    let maxMatches = 0;
+    const headerKeywords = ["DNI", "PATERNO", "MATERNO", "NOMBRES", "CARGO"];
 
-    const maxCols = Math.max(h1.length, h2.length, h3.length);
+    for (let r = 1; r <= 30; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      let matches = 0;
+      for (let c = 1; c < row.length; c++) {
+        const val = norm(row[c]);
+        if (headerKeywords.some(kw => val.includes(kw))) {
+          matches++;
+        }
+      }
+      if (matches > maxMatches && matches >= 3) {
+        maxMatches = matches;
+        headerRowIdx = r;
+      }
+    }
 
+    // Recopilar filas de cabecera: unificar filas 4, 5 y 6 del excel cargado
+    const headerRows: RowValues[] = [];
+    for (const r of [4, 5, 6]) {
+      const row = rows[r];
+      if (row) {
+        headerRows.push(row);
+      }
+    }
+
+    const maxCols = 120;
     const headers: string[] = [];
 
     for (let c = 1; c <= maxCols; c++) {
-      headers[c] = [h1[c], h2[c], h3[c]]
-          .map(v => norm(v))
-          .filter(Boolean)
-          .join(" ");
+      headers[c] = headerRows
+        .map(row => norm(row[c]))
+        .filter(Boolean)
+        .join(" ");
     }
 
     const col: Partial<Record<keyof Worker, number>> = {};
@@ -222,13 +316,56 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
 
     const workers: Worker[] = [];
 
-    for (let r = 7; r <= 100; r++) {
+    const limit = Math.min(300, rows.length - 1);
+    for (let r = headerRowIdx + 1; r <= limit; r++) {
       const row = rows[r];
       if (!row) continue;
 
       const dni = txt(row[col.dni ?? 0]).replace(/\D/g, "");
 
       if (dni.length !== 8) continue;
+
+      // Obtener valores de celdas de pensión específicas
+      const cellONP = money(row[col.onp ?? 0]);
+      const cellPrima = money(row[col.prima ?? 0]);
+      const cellIntegra = money(row[col.integra ?? 0]);
+      const cellProfuturo = money(row[col.profuturo ?? 0]);
+      const cellHabitat = money(row[col.habitat ?? 0]);
+
+      let sysPension = txt(row[col.sistemaPensionario ?? 0]).toUpperCase().trim();
+
+      // Si la columna principal está vacía, o dice simplemente "AFP" o "ONP"
+      if (!sysPension || sysPension === "" || sysPension === "AFP" || sysPension === "ONP") {
+        if (Number(cellONP) > 0) sysPension = "ONP";
+        else if (Number(cellPrima) > 0) sysPension = "PRIMA";
+        else if (Number(cellIntegra) > 0) sysPension = "INTEGRA";
+        else if (Number(cellProfuturo) > 0) sysPension = "PROFUTURO";
+        else if (Number(cellHabitat) > 0) sysPension = "HABITAT";
+      }
+
+      // Obtener o calcular el aporte obligatorio (CFija)
+      let aporteObligVal = money(row[col.aporteObligatorio ?? 0]);
+      if (Number(aporteObligVal) === 0) {
+        if (sysPension === "ONP") aporteObligVal = cellONP;
+        else if (sysPension === "PRIMA") aporteObligVal = cellPrima;
+        else if (sysPension === "INTEGRA") aporteObligVal = cellIntegra;
+        else if (sysPension === "PROFUTURO") aporteObligVal = cellProfuturo;
+        else if (sysPension === "HABITAT") aporteObligVal = cellHabitat;
+      }
+
+      // Si descuentoPension sale 0.00, calcularlo según el tipo de pensión
+      let descPension = money(row[col.descuentoPension ?? 0]);
+      if (Number(descPension) === 0) {
+        if (sysPension === "ONP") {
+          descPension = cellONP;
+        } else {
+          // Es una AFP (PRIMA, INTEGRA, PROFUTURO, HABITAT)
+          const aOblig = Number(aporteObligVal);
+          const comisionVal = Number(money(row[col.comision ?? 0]));
+          const seguroVal = Number(money(row[col.primaSeguro ?? 0]));
+          descPension = (aOblig + comisionVal + seguroVal).toFixed(2);
+        }
+      }
 
       workers.push({
         n: txt(row[col.n ?? 0]) || String(workers.length + 1),
@@ -241,16 +378,25 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
         codEssalud: txt(row[col.codEssalud ?? 0]),
         cuentaBanco: txt(row[col.cuentaBanco ?? 0]),
         leyendaRD: txt(row[col.leyendaRD ?? 0]),
-        sistemaPensionario: txt(row[col.sistemaPensionario ?? 0]),
+        leyendaMensual: txt(row[col.leyendaMensual ?? 0]),
+        sistemaPensionario: sysPension,
         cussp: txt(row[col.cussp ?? 0]),
         fechaAfiliacion: txt(row[col.fechaAfiliacion ?? 0]),
         fechaDevengue: txt(row[col.fechaDevengue ?? 0]),
-        aporteObligatorio: money(row[col.aporteObligatorio ?? 0]),
+        aporteObligatorio: aporteObligVal,
         comision: money(row[col.comision ?? 0]),
         primaSeguro: money(row[col.primaSeguro ?? 0]),
         montoMensual: money(row[col.montoMensual ?? 0]),
-        descuentoPension: money(row[col.descuentoPension ?? 0]),
+        descuentoPension: descPension,
+        onp: cellONP,
+        prima: cellPrima,
+        integra: cellIntegra,
+        profuturo: cellProfuturo,
+        habitat: cellHabitat,
         totalDscto: money(row[col.totalDscto ?? 0]),
+        otrosDsctos: money(row[col.otrosDsctos ?? 0]),
+        dsctoEntidades: money(row[col.dsctoEntidades ?? 0]),
+        dsctoJudicial: money(row[col.dsctoJudicial ?? 0]),
         totalLiquido: money(row[col.totalLiquido ?? 0]),
       });
     }
@@ -259,7 +405,12 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
       ok: true,
       workers,
       period: parsePeriodFromFilename(filename),
-      categoryId: inferCategoryIdFromText(titleText)
+      categoryId: inferCategoryIdFromText(titleText),
+      debug: {
+        headerRowIdx,
+        col,
+        headers: headers.slice(0, 100)
+      }
     };
 
     self.postMessage(ok);

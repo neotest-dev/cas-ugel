@@ -19,7 +19,6 @@ import {
   ChevronRight,
   Download,
   FileUp,
-  FolderTree,
   Info,
   Loader2,
   Printer,
@@ -77,36 +76,11 @@ const Index = () => {
     setSearch("");
     setPeriod({ mes: "", anio: "" });
     setEditedBoletaText("");
+    setSelectedCategoryId("");
   }, []);
-
-  const handleCategoryChange = useCallback(
-    (nextCategoryId: string) => {
-      setSelectedCategoryId(nextCategoryId);
-
-      if (workers.length) {
-        clearLoadedState();
-        toast({
-          title: "Categoria actualizada",
-          description:
-            "Se reinicio la planilla cargada para evitar mezclar categorias.",
-        });
-      }
-    },
-    [clearLoadedState, workers.length],
-  );
 
   const handleFile = useCallback(
     async (file: File) => {
-      if (!selectedCategory) {
-        toast({
-          title: "Selecciona una categoria",
-          description:
-            "Elige primero el tipo de planilla antes de subir el Excel.",
-          variant: "destructive",
-        });
-        return;
-      }
-
       setLoading(true);
       setLoadingMsg(
         file.size > HEAVY_FILE_BYTES
@@ -122,6 +96,11 @@ const Index = () => {
           workers?: Worker[];
           period?: { mes: string; anio: string };
           categoryId?: string | null;
+          debug?: {
+            headerRowIdx: number;
+            col: Record<string, number>;
+            headers: string[];
+          };
           error?: string;
         }>((resolve) => {
           const onMessage = (event: MessageEvent) => {
@@ -141,32 +120,29 @@ const Index = () => {
 
         if (!detectedCategoryId) {
           toast({
-            title: "No se pudo identificar la categoria",
+            title: "No se pudo identificar la categoría",
             description:
-              "No pude reconocer la categoria desde el contenido del Excel. Verifica la planilla antes de continuar.",
+              "No pude reconocer la categoría desde el contenido del Excel. Verifica la planilla antes de continuar.",
             variant: "destructive",
           });
           return;
         }
 
-        if (detectedCategoryId !== selectedCategory.id) {
-          const detectedCategory = CATEGORIAS_PLANILLA.find(
-            (category) => category.id === detectedCategoryId,
-          );
-          toast({
-            title: "Archivo bloqueado por categoria",
-            description: `Elegiste ${selectedCategory.label}, pero el contenido del Excel corresponde a ${detectedCategory?.label ?? "otra categoria"}.`,
-            variant: "destructive",
-          });
-          return;
-        }
+        const detectedCategory = CATEGORIAS_PLANILLA.find(
+          (category) => category.id === detectedCategoryId,
+        );
+
+        setSelectedCategoryId(detectedCategoryId);
 
         const nextWorkers = result.workers || [];
 
         if (!nextWorkers.length) {
+          const debugInfo = result.debug
+            ? ` (Fila Cabecera: ${result.debug.headerRowIdx}, Col DNI: ${result.debug.col?.dni ?? "no encontrada"}, Cabeceras 1-10: ${result.debug.headers?.slice(1, 11).join(", ")})`
+            : "";
           toast({
             title: "Sin datos",
-            description: "No se encontraron trabajadores en la hoja CAS-SEDE.",
+            description: `No se encontraron trabajadores en la hoja CAS-SEDE.${debugInfo}`,
             variant: "destructive",
           });
           return;
@@ -177,7 +153,7 @@ const Index = () => {
         setActiveIdx(0);
         toast({
           title: "Archivo cargado",
-          description: `${selectedCategory.label}: ${nextWorkers.length} trabajadores · ${result.period?.mes} ${result.period?.anio}`,
+          description: `${detectedCategory?.label ?? "Categoría Detectada"}: ${nextWorkers.length} trabajadores · ${result.period?.mes} ${result.period?.anio}`,
         });
       } catch (error) {
         const errorMessage =
@@ -191,14 +167,14 @@ const Index = () => {
         setLoading(false);
       }
     },
-    [getWorker, selectedCategory],
+    [getWorker],
   );
 
   const onDrop = (event: React.DragEvent) => {
     event.preventDefault();
     setDragOver(false);
 
-    if (!selectedCategory || loading) {
+    if (loading) {
       return;
     }
 
@@ -269,10 +245,6 @@ const Index = () => {
   };
 
   const reset = () => clearLoadedState();
-  const resetAndChangeCategory = () => {
-    clearLoadedState();
-    setSelectedCategoryId("");
-  };
 
   if (!workers.length) {
     return (
@@ -288,8 +260,7 @@ const Index = () => {
                   Generador de Boletas CAS
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  UGEL 04 TSE · Selecciona categoria, valida el Excel y genera
-                  boletas.
+                  UGEL 04 TSE · Carga tu archivo CAS y genera boletas de forma automática.
                 </p>
               </div>
             </div>
@@ -300,85 +271,40 @@ const Index = () => {
         </header>
 
         <main className="flex-1 flex items-center justify-center p-6 md:p-10">
-          <div className="w-full max-w-5xl space-y-6">
-            <section className="rounded-[28px] border bg-white p-6 md:p-8 shadow-sm">
-              <div className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr] lg:items-center">
-                <div className="space-y-4">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                    <FolderTree className="h-3.5 w-3.5" />
-                    Flujo guiado por categoria
-                  </div>
-                  <div className="space-y-2">
-                    <h2 className="text-2xl font-semibold tracking-tight">
-                      Selecciona la categoria de planilla
-                    </h2>
-                    <p className="text-sm leading-6 text-muted-foreground max-w-2xl">
-                      Todas las planillas siguen leyendo la hoja{" "}
-                      <code className="font-mono">CAS-SEDE</code>, pero ahora
-                      validamos la categoria real leyendo el contenido interno
-                      del Excel.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rounded-3xl border bg-slate-50 p-4 md:p-5 space-y-3">
-                  <p className="text-sm font-medium">Categoria</p>
-                  <Select
-                    value={selectedCategoryId}
-                    onValueChange={handleCategoryChange}
-                  >
-                    <SelectTrigger className="h-12 w-full bg-white">
-                      <SelectValue placeholder="Selecciona una categoria" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CATEGORIAS_PLANILLA.map((category) => (
-                        <SelectItem key={category.id} value={category.id}>
-                          {category.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Solo se aceptara un archivo cuyo contenido coincida con la
-                    categoria elegida.
-                  </p>
-                </div>
-              </div>
-            </section>
-
+          <div className="w-full max-w-4xl space-y-6">
             <div
               onDragOver={(event) => {
                 event.preventDefault();
-                if (selectedCategory) setDragOver(true);
+                if (!loading) setDragOver(true);
               }}
               onDragLeave={() => setDragOver(false)}
               onDrop={onDrop}
               onClick={() => {
-                if (!selectedCategory || loading) return;
+                if (loading) return;
                 fileRef.current?.click();
               }}
-              className={`rounded-[28px] border-2 border-dashed p-10 md:p-14 text-center transition-all bg-white ${selectedCategory ? "cursor-pointer" : "cursor-not-allowed opacity-70"} ${dragOver ? "border-slate-900 bg-slate-50" : "border-slate-200 hover:border-slate-400 hover:bg-slate-50"}`}
+              className={`rounded-[28px] border-2 border-dashed p-10 md:p-14 text-center transition-all bg-white cursor-pointer ${dragOver ? "border-blue-600 bg-blue-50/30" : "border-slate-200 hover:border-slate-400 hover:bg-slate-50/50"
+                }`}
             >
               {loading ? (
                 <div className="flex flex-col items-center gap-3">
-                  <Loader2 className="h-10 w-10 animate-spin" />
+                  <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
                   <p className="text-sm text-muted-foreground">{loadingMsg}</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-5">
-                  <div className="h-16 w-16 rounded-full bg-red-600 text-background flex items-center justify-center shadow-sm">
+                  <div className="h-16 w-16 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-md animate-pulse">
                     <Upload className="h-6 w-6" />
                   </div>
                   <div className="space-y-2">
-                    <p className="text-lg font-semibold">
-                      {selectedCategory
-                        ? `Sube el Excel de ${selectedCategory.label}`
-                        : "Selecciona una categoria para continuar"}
+                    <p className="text-lg font-semibold text-slate-800">
+                      Sube tu planilla Excel de CAS
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {selectedCategory
-                        ? "Arrastra aqui o haz clic para seleccionar .xlsx, .xls, .xlsm"
-                        : "Despues podras arrastrar o seleccionar el archivo correspondiente"}
+                      Arrastra aquí o haz clic para seleccionar .xlsx, .xls, .xlsm
+                    </p>
+                    <p className="text-xs text-muted-foreground/80 mt-2 max-w-md mx-auto">
+                      El sistema identificará de manera automática el tipo de CAS (Sede, JEC, Orquestando, SEHO, EBE, Winanq, Convivencia o Mantenimiento) a partir de su contenido.
                     </p>
                   </div>
                 </div>
@@ -399,13 +325,11 @@ const Index = () => {
 
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-2xl border bg-white px-4 py-3 text-sm">
-                <span className="text-muted-foreground">Categoria actual</span>
-                <p className="font-semibold mt-1">
-                  {selectedCategory?.label ?? "Sin seleccionar"}
-                </p>
+                <span className="text-muted-foreground">Categoría</span>
+                <p className="font-semibold mt-1">Detección automática</p>
               </div>
               <div className="rounded-2xl border bg-white px-4 py-3 text-sm">
-                <span className="text-muted-foreground">Validacion</span>
+                <span className="text-muted-foreground">Validación</span>
                 <p className="font-semibold mt-1">Por contenido del Excel</p>
               </div>
               <div className="rounded-2xl border bg-white px-4 py-3 text-sm">
@@ -474,14 +398,6 @@ const Index = () => {
                 onClick={reset}
               >
                 <FileUp className="h-4 w-4 mr-1.5" /> Nueva planilla
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-10 bg-white"
-                onClick={resetAndChangeCategory}
-              >
-                Cambiar categoria
               </Button>
             </div>
           </div>
