@@ -117,6 +117,85 @@ All colors MUST be HSL.
   display: none;
 }
 
+.motion-rise {
+  animation: motion-rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.motion-soft-pop {
+  animation: motion-soft-pop 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.motion-float {
+  animation: motion-float 5s ease-in-out infinite;
+}
+
+.motion-progress {
+  transform-origin: left center;
+  animation: motion-progress 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.motion-delay-1 {
+  animation-delay: 80ms;
+}
+
+.motion-delay-2 {
+  animation-delay: 150ms;
+}
+
+.motion-delay-3 {
+  animation-delay: 220ms;
+}
+
+@keyframes motion-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes motion-soft-pop {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes motion-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -6px, 0);
+  }
+}
+
+@keyframes motion-progress {
+  from {
+    transform: scaleX(0.72);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-rise,
+  .motion-soft-pop,
+  .motion-float,
+  .motion-progress {
+    animation: none !important;
+  }
+}
+
 @media print {
   html,
   body {

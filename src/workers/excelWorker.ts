@@ -19,6 +19,17 @@ type MsgOut =
       headerRowIdx: number;
       col: Partial<Record<keyof Worker, number>>;
       headers: string[];
+      sheetNames: string[];
+      titleText: string;
+      categoryId: string | null;
+      headerRowIndexes: number[];
+      candidateRows: number;
+      headerCandidates: Array<{
+        rowIndex: number;
+        matches: number;
+        dniRows: number;
+        score: number;
+      }>;
     };
   }
   | {
@@ -236,6 +247,51 @@ function resolveColumn(spec: ColumnSpec, headers: string[]): number | undefined 
   }
 }
 
+function buildHeaders(rows: CellValue[][], rowIndexes: number[], maxCols: number): string[] {
+  const headerRows = rowIndexes
+    .map((rowNumber) => rows[rowNumber])
+    .filter(Boolean) as RowValues[];
+
+  const headers: string[] = [];
+
+  for (let c = 1; c <= maxCols; c++) {
+    headers[c] = headerRows
+      .map(row => norm(row[c]))
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return headers;
+}
+
+function resolveColumns(headers: string[]): Partial<Record<keyof Worker, number>> {
+  const col: Partial<Record<keyof Worker, number>> = {};
+
+  (Object.keys(COLUMN_MAP) as (keyof Worker)[]).forEach((key) => {
+    col[key] = resolveColumn(COLUMN_MAP[key], headers);
+  });
+
+  return col;
+}
+
+function countRowsWithDni(rows: CellValue[][], startRow: number, endRow: number, dniCol?: number): number {
+  if (!dniCol) return 0;
+
+  let count = 0;
+
+  for (let r = startRow; r <= endRow; r++) {
+    const row = rows[r];
+    if (!row) continue;
+
+    const dni = txt(row[dniCol]).replace(/\D/g, "");
+    if (dni.length === 8) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
 self.onmessage = async (e: MessageEvent<MsgIn>) => {
   try {
     const { buffer, filename } = e.data;
@@ -243,10 +299,25 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer);
 
+    const sheetNames = workbook.worksheets.map((sheet) => sheet.name);
+
+    console.info("[ExcelWorker] Archivo recibido", {
+      filename,
+      sheetNames,
+    });
+
     const ws = workbook.getWorksheet("CAS-SEDE");
 
     if (!ws) {
-      const fail: MsgOut = { ok: false, error: "No existe hoja CAS-SEDE" };
+      console.error("[ExcelWorker] No existe hoja CAS-SEDE", {
+        filename,
+        sheetNames,
+      });
+
+      const fail: MsgOut = {
+        ok: false,
+        error: `No existe hoja CAS-SEDE. Hojas encontradas: ${sheetNames.join(", ") || "ninguna"}`,
+      };
       self.postMessage(fail);
       return;
     }
@@ -268,14 +339,25 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
       .filter(Boolean)
       .join(" ");
 
-    // Buscar fila de encabezados dinámicamente
-    let headerRowIdx = 5; // default fallback
-    let maxMatches = 0;
+    const categoryId = inferCategoryIdFromText(`${titleText} ${filename}`);
+
+    // Buscar fila de encabezados dinámicamente y validar que debajo existan DNIs reales.
     const headerKeywords = ["DNI", "PATERNO", "MATERNO", "NOMBRES", "CARGO"];
+    const maxCols = 120;
+    const headerCandidates: Array<{
+      rowIndex: number;
+      matches: number;
+      dniRows: number;
+      score: number;
+      rowIndexes: number[];
+      headers: string[];
+      col: Partial<Record<keyof Worker, number>>;
+    }> = [];
 
     for (let r = 1; r <= 30; r++) {
       const row = rows[r];
       if (!row) continue;
+
       let matches = 0;
       for (let c = 1; c < row.length; c++) {
         const val = norm(row[c]);
@@ -283,43 +365,69 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
           matches++;
         }
       }
-      if (matches > maxMatches && matches >= 3) {
-        maxMatches = matches;
-        headerRowIdx = r;
+
+      if (matches >= 3) {
+        const rowIndexes = Array.from(
+          new Set([r - 1, r, r + 1])
+        ).filter((rowNumber) => rowNumber >= 1 && rowNumber < rows.length);
+        const candidateHeaders = buildHeaders(rows, rowIndexes, maxCols);
+        const candidateCol = resolveColumns(candidateHeaders);
+        const dniRows = countRowsWithDni(
+          rows,
+          r + 1,
+          Math.min(r + 80, rows.length - 1),
+          candidateCol.dni,
+        );
+        const baseColumns = [
+          candidateCol.dni,
+          candidateCol.apPaterno,
+          candidateCol.apMaterno,
+          candidateCol.nombres,
+        ].filter(Boolean).length;
+        const score = dniRows * 100 + baseColumns * 25 + matches - r * 0.1;
+
+        headerCandidates.push({
+          rowIndex: r,
+          matches,
+          dniRows,
+          score,
+          rowIndexes,
+          headers: candidateHeaders,
+          col: candidateCol,
+        });
       }
     }
 
-    // Recopilar filas de cabecera: unificar filas 4, 5 y 6 del excel cargado
-    const headerRows: RowValues[] = [];
-    for (const r of [4, 5, 6]) {
-      const row = rows[r];
-      if (row) {
-        headerRows.push(row);
-      }
-    }
+    headerCandidates.sort((a, b) => b.score - a.score || a.rowIndex - b.rowIndex);
 
-    const maxCols = 120;
-    const headers: string[] = [];
+    const fallbackHeaders = buildHeaders(rows, [4, 5, 6], maxCols);
+    const selectedHeader = headerCandidates[0] ?? {
+      rowIndex: 5,
+      matches: 0,
+      dniRows: 0,
+      score: 0,
+      rowIndexes: [4, 5, 6].filter((rowNumber) => rowNumber < rows.length),
+      headers: fallbackHeaders,
+      col: resolveColumns(fallbackHeaders),
+    };
 
-    for (let c = 1; c <= maxCols; c++) {
-      headers[c] = headerRows
-        .map(row => norm(row[c]))
-        .filter(Boolean)
-        .join(" ");
-    }
-
-    const col: Partial<Record<keyof Worker, number>> = {};
-
-    (Object.keys(COLUMN_MAP) as (keyof Worker)[]).forEach((key) => {
-      col[key] = resolveColumn(COLUMN_MAP[key], headers);
-    });
+    const headerRowIdx = selectedHeader.rowIndex;
+    const headerRowIndexes = selectedHeader.rowIndexes;
+    const headers = selectedHeader.headers;
+    const col = selectedHeader.col;
+    const maxMatches = selectedHeader.matches;
 
     const workers: Worker[] = [];
+    let candidateRows = 0;
 
     const limit = Math.min(300, rows.length - 1);
     for (let r = headerRowIdx + 1; r <= limit; r++) {
       const row = rows[r];
       if (!row) continue;
+
+      if (isDataRow(row)) {
+        candidateRows++;
+      }
 
       const dni = txt(row[col.dni ?? 0]).replace(/\D/g, "");
 
@@ -401,21 +509,56 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
       });
     }
 
+    console.info("[ExcelWorker] Diagnostico de planilla", {
+      filename,
+      sheetName: ws.name,
+      sheetNames,
+      titleText,
+      categoryId,
+      headerRowIdx,
+      headerRowIndexes,
+      maxMatches,
+      columns: col,
+      candidateRows,
+      workersCount: workers.length,
+      firstWorker: workers[0] ?? null,
+      headerCandidates: headerCandidates.map(({ rowIndex, matches, dniRows, score }) => ({
+        rowIndex,
+        matches,
+        dniRows,
+        score,
+      })),
+      headersPreview: headers.slice(1, 25),
+    });
+
     const ok: MsgOut = {
       ok: true,
       workers,
       period: parsePeriodFromFilename(filename),
-      categoryId: inferCategoryIdFromText(titleText),
+      categoryId,
       debug: {
         headerRowIdx,
         col,
-        headers: headers.slice(0, 100)
+        headers: headers.slice(0, 100),
+        sheetNames,
+        titleText,
+        categoryId,
+        headerRowIndexes,
+        candidateRows,
+        headerCandidates: headerCandidates.map(({ rowIndex, matches, dniRows, score }) => ({
+          rowIndex,
+          matches,
+          dniRows,
+          score,
+        })),
       }
     };
 
     self.postMessage(ok);
 
   } catch (error: unknown) {
+    console.error("[ExcelWorker] Error procesando archivo", error);
+
     const fail: MsgOut = {
       ok: false,
       error: error instanceof Error ? error.message : "Error procesando archivo"
