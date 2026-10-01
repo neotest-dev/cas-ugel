@@ -196,31 +196,54 @@ All colors MUST be HSL.
   }
 }
 
+/* Portal de impresión: oculto en pantalla normal */
+#boleta-print-root {
+  display: none;
+}
+
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
+
   html,
   body {
     background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
-  body * { visibility: hidden; }
-  #boleta-print, #boleta-print * { visibility: visible; }
-  #boleta-print {
-    position: static;
-    width: auto;
-    max-width: none;
-    margin: 0;
-    padding: 0;
-    background: white;
-    border: 0;
-    box-shadow: none;
+  /* Ocultar toda la interfaz interactiva para no desplazar la hoja */
+  #root {
+    display: none !important;
   }
-  .no-print { display: none !important; }
-  .print-only {
+
+  /* Mostrar exclusivamente la boleta en la raíz del documento */
+  #boleta-print-root {
     display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
-  .print-text {
-    white-space: pre-wrap;
-    margin: 0;
+
+  .boleta-print-mono {
+    font-family: "Courier New", Courier, monospace !important;
+    font-size: 8.5pt !important;
+    line-height: 1.32 !important;
+    letter-spacing: 0 !important;
+    white-space: pre !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
-  @page { size: A4; margin: 1cm; }
 }

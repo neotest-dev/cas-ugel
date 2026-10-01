@@ -122,7 +122,7 @@ export function buildBoletaText(
         w.habitat ||
         "0.00";
 
-    // 🔥 FUNCION PARA ALINEAR SIN QUE SE MUEVA NADA
+    // FUNCION PARA ALINEAR
     const row2 = (
         leftLabel: string,
         leftValue: string,
@@ -215,7 +215,7 @@ export function buildBoletaText(
     );
 
 
-    // 🔥 BLOQUE PENSIONES
+    // BLOQUE PENSIONES
     if (isONP) {
         lines.push(
             row2(
