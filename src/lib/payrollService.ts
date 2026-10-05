@@ -269,7 +269,7 @@ export async function fetchCargasPlanilla(): Promise<CargaPlanillaItem[]> {
     return [];
   }
 
-  return (data || []).map((item: any) => ({
+  return (data || []).map((item) => ({
     id: item.id,
     anio: item.anio,
     mes: item.mes,
@@ -294,28 +294,21 @@ export async function deleteCargaPlanilla(id: string): Promise<{ ok: boolean; er
   return { ok: true };
 }
 
-export async function searchAdminBoletas(searchTerm: string): Promise<BoletaHistoricaItem[]> {
-  const term = searchTerm.trim();
-  if (!term) return [];
+export interface AdminBoletaSearchFilters {
+  searchTerm?: string;
+  categoriaId?: string;
+  desde?: string;
+  hasta?: string;
+}
 
-  // Búsqueda en trabajadores por DNI, Apellidos o Nombres
-  const { data: matchingWorkers, error: workerErr } = await supabase
-    .from("trabajadores")
-    .select("dni")
-    .or(`dni.ilike.%${term}%,ap_paterno.ilike.%${term}%,ap_materno.ilike.%${term}%,nombres.ilike.%${term}%`)
-    .limit(30);
+const MESES_NUMERO: Record<string, string> = {
+  ENERO: "01", FEBRERO: "02", MARZO: "03", ABRIL: "04", MAYO: "05", JUNIO: "06",
+  JULIO: "07", AGOSTO: "08", SEPTIEMBRE: "09", SETIEMBRE: "09", OCTUBRE: "10",
+  NOVIEMBRE: "11", DICIEMBRE: "12",
+};
 
-  if (workerErr || !matchingWorkers || matchingWorkers.length === 0) {
-    return [];
-  }
-
-  const dnis = matchingWorkers.map((w) => w.dni);
-
-  // Intentar consultar con boleta_texto_personalizado
-  let res = await supabase
-    .from("boletas_detalle")
-    .select(`
-      id,
+const BOLETA_SEARCH_SELECT = `
+       id,
       n,
       dni,
       cargo,
@@ -341,11 +334,13 @@ export async function searchAdminBoletas(searchTerm: string): Promise<BoletaHist
       dscto_entidades,
       dscto_judicial,
       total_liquido,
-      boleta_texto_personalizado,
-      cargas_planilla (
-        mes,
-        anio,
-        categorias ( label )
+       boleta_texto_personalizado,
+       cargas_planilla (
+         id,
+         mes,
+         anio,
+         categoria_id,
+         categorias ( label )
       ),
       trabajadores (
         dni,
@@ -355,69 +350,146 @@ export async function searchAdminBoletas(searchTerm: string): Promise<BoletaHist
         fecha_nac,
         cod_essalud
       )
-    `)
-    .in("dni", dnis)
-    .order("created_at", { ascending: false })
-    .limit(50);
+     `;
 
-  // Si la columna boleta_texto_personalizado aún no existe en BD, reintentar sin ella
-  if (res.error && (res.error.message?.includes("boleta_texto_personalizado") || res.error.code === "42703")) {
-    res = await supabase
-      .from("boletas_detalle")
-      .select(`
-        id,
-        n,
-        dni,
-        cargo,
-        cuenta_banco,
-        leyenda_rd,
-        leyenda_mensual,
-        sistema_pensionario,
-        cussp,
-        fecha_afiliacion,
-        fecha_devengue,
-        monto_mensual,
-        descuento_pension,
-        onp,
-        prima,
-        integra,
-        profuturo,
-        habitat,
-        aporte_obligatorio,
-        comision,
-        prima_seguro,
-        total_dscto,
-        otros_dsctos,
-        dscto_entidades,
-        dscto_judicial,
-        total_liquido,
-        cargas_planilla (
-          mes,
-          anio,
-          categorias ( label )
-        ),
-        trabajadores (
-          dni,
-          ap_paterno,
-          ap_materno,
-          nombres,
-          fecha_nac,
-          cod_essalud
-        )
-      `)
-      .in("dni", dnis)
-      .order("created_at", { ascending: false })
-      .limit(50);
+interface AdminBoletaDbRow {
+  id: number;
+  n: string;
+  dni: string;
+  cargo: string;
+  cuenta_banco: string;
+  leyenda_rd: string;
+  leyenda_mensual: string;
+  sistema_pensionario: string;
+  cussp: string;
+  fecha_afiliacion: string;
+  fecha_devengue: string;
+  monto_mensual: string | number | null;
+  descuento_pension: string | number | null;
+  onp: string | number | null;
+  prima: string | number | null;
+  integra: string | number | null;
+  profuturo: string | number | null;
+  habitat: string | number | null;
+  aporte_obligatorio: string | number | null;
+  comision: string | number | null;
+  prima_seguro: string | number | null;
+  total_dscto: string | number | null;
+  otros_dsctos: string | number | null;
+  dscto_entidades: string | number | null;
+  dscto_judicial: string | number | null;
+  total_liquido: string | number | null;
+  boleta_texto_personalizado?: string | null;
+  cargas_planilla?: {
+    mes?: string | null;
+    anio?: string | null;
+    categoria_id?: string | null;
+    categorias?: { label?: string | null } | null;
+  } | null;
+  trabajadores?: {
+    ap_paterno?: string | null;
+    ap_materno?: string | null;
+    nombres?: string | null;
+    fecha_nac?: string | null;
+    cod_essalud?: string | null;
+  } | null;
+}
+
+export async function searchAdminBoletas(
+  filters: AdminBoletaSearchFilters
+): Promise<BoletaHistoricaItem[]> {
+  const term = filters.searchTerm?.trim() ?? "";
+  if (!term && !filters.categoriaId && !filters.desde && !filters.hasta) return [];
+
+  let dnis: string[] | null = null;
+  if (term) {
+    const workers: Array<{ dni: string }> = [];
+    const pageSize = 1000;
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from("trabajadores")
+        .select("dni")
+        .or(`dni.ilike.%${term}%,ap_paterno.ilike.%${term}%,ap_materno.ilike.%${term}%,nombres.ilike.%${term}%`)
+        .range(from, from + pageSize - 1);
+      if (error) {
+        console.error("Error al buscar trabajadores:", error);
+        return [];
+      }
+      workers.push(...(data ?? []));
+      if (!data || data.length < pageSize) break;
+    }
+    dnis = [...new Set(workers.map((worker) => worker.dni))];
+    if (!dnis.length) return [];
   }
 
-  const { data, error } = res;
+  let cargaIds: string[] | null = null;
+  if (filters.categoriaId || filters.desde || filters.hasta) {
+    let cargasQuery = supabase.from("cargas_planilla").select("id, mes, anio, categoria_id");
+    if (filters.categoriaId) cargasQuery = cargasQuery.eq("categoria_id", filters.categoriaId);
+    const yearFrom = filters.desde?.slice(0, 4);
+    const yearTo = filters.hasta?.slice(0, 4);
+    if (yearFrom) cargasQuery = cargasQuery.gte("anio", yearFrom);
+    if (yearTo) cargasQuery = cargasQuery.lte("anio", yearTo);
 
-  if (error || !data) {
-    console.error("Error al buscar boletas:", error);
-    return [];
+    const { data: cargas, error: cargasError } = await cargasQuery;
+    if (cargasError) {
+      console.error("Error al filtrar periodos de planilla:", cargasError);
+      return [];
+    }
+
+    cargaIds = (cargas ?? [])
+      .filter((carga) => {
+        const month = MESES_NUMERO[String(carga.mes ?? "").trim().toUpperCase()];
+        if (!month) return false;
+        const period = `${carga.anio}-${month}`;
+        const from = filters.desde?.slice(0, 7);
+        const to = filters.hasta?.slice(0, 7);
+        return (!from || period >= from) && (!to || period <= to);
+      })
+      .map((carga) => String(carga.id));
+    if (!cargaIds.length) return [];
   }
 
-  return data.map((item: any) => ({
+  const dnisBatches = dnis ? chunkArray(dnis, 100) : [null];
+  const cargaBatches = cargaIds ? chunkArray(cargaIds, 100) : [null];
+  const rows: AdminBoletaDbRow[] = [];
+  const pageSize = 1000;
+
+  for (const dniBatch of dnisBatches) {
+    for (const cargaBatch of cargaBatches) {
+      for (let from = 0; ; from += pageSize) {
+        let query = supabase
+          .from("boletas_detalle")
+          .select(BOLETA_SEARCH_SELECT)
+          .order("created_at", { ascending: false })
+          .range(from, from + pageSize - 1);
+        if (dniBatch) query = query.in("dni", dniBatch);
+        if (cargaBatch) query = query.in("carga_id", cargaBatch);
+
+        let result = await query;
+        if (result.error && (result.error.message?.includes("boleta_texto_personalizado") || result.error.code === "42703")) {
+          // Reaplicar los filtros en el reintento cuando el esquema aún no tenga la columna opcional.
+          let fallback = supabase
+            .from("boletas_detalle")
+            .select(BOLETA_SEARCH_SELECT.replace("boleta_texto_personalizado,", ""))
+            .order("created_at", { ascending: false })
+            .range(from, from + pageSize - 1);
+          if (dniBatch) fallback = fallback.in("dni", dniBatch);
+          if (cargaBatch) fallback = fallback.in("carga_id", cargaBatch);
+          result = await fallback;
+        }
+        if (result.error) {
+          console.error("Error al buscar boletas:", result.error);
+          return [];
+        }
+        rows.push(...((result.data ?? []) as unknown as AdminBoletaDbRow[]));
+        if (!result.data || result.data.length < pageSize) break;
+      }
+    }
+  }
+
+  const uniqueRows = [...new Map(rows.map((row) => [row.id, row])).values()];
+  return uniqueRows.map((item) => ({
     boleta_id: item.id,
     n: item.n,
     dni: item.dni,
@@ -451,9 +523,13 @@ export async function searchAdminBoletas(searchTerm: string): Promise<BoletaHist
     total_liquido: String(item.total_liquido ?? "0.00"),
     mes: item.cargas_planilla?.mes ?? "",
     anio: item.cargas_planilla?.anio ?? "",
-    categoria_label: item.cargas_planilla?.categorias?.label ?? "CAS",
+    categoria_label: item.cargas_planilla?.categorias?.label ?? item.cargas_planilla?.categoria_id?.toUpperCase() ?? "CAS",
     boleta_texto_personalizado: item.boleta_texto_personalizado || null,
-  }));
+  })).sort((a, b) => {
+    const periodA = `${a.anio}-${MESES_NUMERO[a.mes.toUpperCase()] ?? "00"}`;
+    const periodB = `${b.anio}-${MESES_NUMERO[b.mes.toUpperCase()] ?? "00"}`;
+    return periodB.localeCompare(periodA);
+  });
 }
 
 export async function consultarBoletasTrabajador(
@@ -477,7 +553,7 @@ export async function consultarBoletasTrabajador(
       };
     }
 
-    const boletas: BoletaHistoricaItem[] = data.map((item: any) => ({
+    const boletas: BoletaHistoricaItem[] = data.map((item) => ({
       boleta_id: item.boleta_id,
       n: item.n,
       dni: item.doc_identidad,

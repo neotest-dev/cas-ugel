@@ -172,12 +172,6 @@ export function buildBoletaText(
     );
     lines.push(
         row2(
-            "Regimen Laboral              : ",
-            "D.LEG.Nº 1057 - CAS"
-        )
-    );
-    lines.push(
-        row2(
             "Niv.Mag./Grupo Ocup./Horas   : ",
             "0/0/40 Horas"
         )

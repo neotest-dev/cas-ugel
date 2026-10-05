@@ -12,6 +12,7 @@ import { buildBoletaText } from "@/lib/boleta";
 import { exportBoletaToPDF } from "@/lib/pdfExport";
 import { CambiarClaveDialog } from "./CambiarClaveDialog";
 import { PrintBoletaPortal } from "./PrintBoletaPortal";
+import { TutorialDialog } from "./TutorialDialog";
 import {
   Search,
   Eye,
@@ -124,22 +125,25 @@ export function TrabajadorConsulta() {
     <div className="space-y-4">
       {/* 1. Formulario de Búsqueda (Estilo Bootstrap Card) */}
       {boletas.length === 0 ? (
-        <div className="mx-auto max-w-xl py-3">
+        <div className="mx-auto max-w-xl py-2 sm:py-3">
           <div className="bg-white border border-slate-300 rounded shadow-sm overflow-hidden">
             {/* Encabezado del Panel */}
-            <div className="bg-[#0b223d] text-white px-5 py-3.5 border-b border-slate-300 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-amber-400" />
-                <h2 className="text-sm font-bold uppercase tracking-wide">
-                  Consulta de Boleta de Pago CAS
+            <div className="bg-[#0b223d] text-white px-4 py-3 sm:px-5 sm:py-3.5 border-b border-slate-300 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <FileText className="h-5 w-5 shrink-0 text-amber-400" />
+                <h2 className="min-w-0 text-xs font-bold uppercase tracking-wide sm:text-sm">
+                  Consulta de Boleta CAS
                 </h2>
               </div>
-              <span className="text-[11px] bg-[#1a3d66] text-slate-200 px-2 py-0.5 rounded border border-[#234e80]">
-                UGEL 04 TSE
-              </span>
+                <span className="hidden shrink-0 text-[11px] bg-[#1a3d66] text-slate-200 px-2 py-0.5 rounded border border-[#234e80] sm:inline-flex">
+                  UGEL 04 TSE
+                </span>
+                <div className="shrink-0 [&>button]:h-9 [&>button]:px-2.5 [&>button]:text-[11px] sm:[&>button]:px-3 sm:[&>button]:text-xs">
+                  <TutorialDialog audience="trabajador" />
+                </div>
             </div>
 
-            <div className="p-5 sm:p-6 space-y-4">
+            <div className="space-y-4 p-4 sm:p-6">
               {/* Alerta Informativa (Bootstrap alert-info) */}
               <div className="bg-[#e7f1ff] border border-[#b6d4fe] text-[#084298] p-3 rounded text-xs flex items-start gap-2.5">
                 <Info className="h-4 w-4 shrink-0 mt-0.5 text-[#0d6efd]" />
@@ -239,46 +243,48 @@ export function TrabajadorConsulta() {
         /* 2. Vista de Resultados (Panel Clásico de Consulta) */
         <div className="space-y-4">
           {/* Ficha Resumen del Trabajador */}
-          <div className="bg-white border border-slate-300 rounded p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-start gap-3">
+          <div className="bg-white border border-slate-300 rounded p-3 sm:p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
               <div className="h-9 w-9 rounded bg-[#e7f1ff] text-[#0d6efd] border border-[#b6d4fe] flex items-center justify-center shrink-0">
                 <UserCheck className="h-5 w-5" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900 text-sm sm:text-base">
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+                  <span className="break-words font-bold leading-snug text-slate-900 text-sm sm:text-base">
                     {selectedBoleta?.ap_paterno} {selectedBoleta?.ap_materno}, {selectedBoleta?.nombres}
                   </span>
-                  <span className="bg-slate-100 border border-slate-300 px-2 py-0.5 text-xs font-mono font-bold text-slate-700 rounded">
+                  <span className="shrink-0 bg-slate-100 border border-slate-300 px-2 py-0.5 text-xs font-mono font-bold text-slate-700 rounded">
                     DNI {selectedBoleta?.dni}
                   </span>
                 </div>
-                <p className="text-xs text-slate-600 mt-0.5">
-                  Cargo: <strong>{selectedBoleta?.cargo}</strong> · Régimen: <strong>D.Leg. 1057 (CAS)</strong>
-                </p>
+                {selectedBoleta?.cargo && (
+                  <p className="mt-1 break-words text-xs text-slate-600">
+                    Cargo: <strong>{selectedBoleta.cargo}</strong>
+                  </p>
+                )}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleResetConsulta}
-                className="h-9 rounded border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold"
+                className="h-10 w-full rounded border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold sm:h-9 sm:w-auto"
               >
                 <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Nueva Consulta
               </Button>
               <Button
                 size="sm"
                 onClick={handlePrint}
-                className="h-9 rounded bg-[#0d6efd] hover:bg-[#0b5ed7] text-white text-xs font-semibold shadow-sm"
+                className="h-10 w-full rounded bg-[#0d6efd] hover:bg-[#0b5ed7] text-xs font-semibold text-white shadow-sm sm:h-9 sm:w-auto"
               >
                 <Printer className="h-3.5 w-3.5 mr-1" /> Imprimir Boleta
               </Button>
               <Button
                 size="sm"
                 onClick={handlePDF}
-                className="h-9 rounded bg-[#dc3545] hover:bg-[#bb2d3b] text-white text-xs font-semibold shadow-sm"
+                className="col-span-2 h-10 w-full rounded bg-[#dc3545] hover:bg-[#bb2d3b] text-xs font-semibold text-white shadow-sm sm:col-span-1 sm:h-9 sm:w-auto"
               >
                 <Download className="h-3.5 w-3.5 mr-1" /> Descargar PDF
               </Button>

@@ -295,9 +295,8 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
           <div className="bg-[#0b223d] text-white px-4 py-3 border-b border-slate-300 flex items-center justify-between">
             <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
               <FileSpreadsheet className="h-4 w-4 text-amber-400" />
-              Módulo de Importación y Publicación de Planillas
+              Importar Planilla Excel
             </h3>
-            <span className="text-[11px] text-slate-300">Formatos .xlsx, .xls</span>
           </div>
 
           <div className="p-6">
@@ -332,9 +331,6 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
                     <p className="text-sm font-bold text-slate-800">
                       Seleccione o arrastre el archivo Excel de la planilla
                     </p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Hojas compatibles: CAS-SEDE, CAS JEC, ORQUESTANDO, etc.
-                    </p>
                   </div>
                   <Button
                     type="button"
@@ -358,18 +354,22 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
               />
             </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-slate-600">
-              <div className="flex items-center gap-1.5 bg-slate-50 p-2 rounded border border-slate-200">
+            <div className="mt-4 pt-3 border-t border-slate-200">
+              <div className="flex items-center gap-1.5 mb-2">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                <span>8 Categorías CAS</span>
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  8 CAS:
+                </span>
               </div>
-              <div className="flex items-center gap-1.5 bg-slate-50 p-2 rounded border border-slate-200">
-                <Database className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                <span>Almacenamiento SQL</span>
-              </div>
-              <div className="flex items-center gap-1.5 bg-slate-50 p-2 rounded border border-slate-200">
-                <FileSpreadsheet className="h-3.5 w-3.5 text-purple-600 shrink-0" />
-                <span>Control de Duplicados</span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {CATEGORIAS_PLANILLA.map((cat) => (
+                  <div
+                    key={cat.id}
+                    className="bg-slate-50 px-2.5 py-1.5 rounded border border-slate-200 text-center text-[11px] font-semibold text-slate-700 hover:bg-blue-50/50 hover:border-blue-200 transition"
+                  >
+                    {cat.label}
+                  </div>
+                ))}
               </div>
             </div>
           </div>

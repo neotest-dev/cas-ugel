@@ -1,18 +1,28 @@
 import { useState, useMemo, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import {
   searchAdminBoletas,
+  AdminBoletaSearchFilters,
   actualizarDatosBoletaYTrabajador,
   BoletaFormData,
   BoletaHistoricaItem,
   boletaItemToWorker,
 } from "@/lib/payrollService";
-import { buildBoletaText, Worker } from "@/lib/boleta";
-import { exportBoletaToPDF } from "@/lib/pdfExport";
+import { buildBoletaText, CATEGORIAS_PLANILLA, Worker } from "@/lib/boleta";
+import { exportBoletaToPDF, exportBoletasToPDF } from "@/lib/pdfExport";
 import { PrintBoletaPortal } from "./PrintBoletaPortal";
 import { BoletaFormEditor } from "./BoletaFormEditor";
+import { TutorialDialog } from "./TutorialDialog";
 import {
   Search,
   Printer,
@@ -34,7 +44,12 @@ import {
 
 export function AdminVentanilla() {
   const [query, setQuery] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [results, setResults] = useState<BoletaHistoricaItem[]>([]);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [printTexts, setPrintTexts] = useState<string[]>([]);
   const [selectedBoleta, setSelectedBoleta] = useState<BoletaHistoricaItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
@@ -46,15 +61,33 @@ export function AdminVentanilla() {
   const [savingDb, setSavingDb] = useState(false);
   const [editedBoletaText, setEditedBoletaText] = useState("");
 
+  const clearDisplayedResults = () => {
+    setResults([]);
+    setSelectedBoleta(null);
+    setSelectedIds([]);
+    setHasSearched(false);
+  };
+
   const handleSearch = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const term = query.trim();
-    if (!term) return;
+    if (!term && !categoryId && !dateFrom && !dateTo) return;
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      toast({ title: "Rango de fechas inválido", description: "La fecha inicial debe ser anterior a la fecha final.", variant: "destructive" });
+      return;
+    }
 
     setLoading(true);
     setHasSearched(true);
+    setSelectedIds([]);
     try {
-      const data = await searchAdminBoletas(term);
+      const filters: AdminBoletaSearchFilters = {
+        searchTerm: term,
+        categoriaId: categoryId,
+        desde: dateFrom,
+        hasta: dateTo,
+      };
+      const data = await searchAdminBoletas(filters);
       setResults(data);
       if (data.length > 0) {
         setSelectedBoleta(data[0]);
@@ -181,6 +214,35 @@ export function AdminVentanilla() {
     window.print();
   };
 
+  const selectedBoletas = useMemo(
+    () => results.filter((item) => selectedIds.includes(item.boleta_id)),
+    [results, selectedIds]
+  );
+
+  const getPrintableText = (item: BoletaHistoricaItem) =>
+    item.boleta_texto_personalizado || buildBoletaText(boletaItemToWorker(item), item.mes, item.anio);
+
+  const handlePrintSelected = () => {
+    const texts = selectedBoletas.map(getPrintableText);
+    if (!texts.length) return;
+    setPrintTexts(texts);
+    window.addEventListener("afterprint", () => setPrintTexts([]), { once: true });
+    window.setTimeout(() => window.print(), 100);
+  };
+
+  const handleDownloadSelected = () => {
+    exportBoletasToPDF(
+      selectedBoletas.map((item) => ({ worker: boletaItemToWorker(item), text: getPrintableText(item) })),
+      `Boletas_CAS_${selectedBoletas.length}`
+    );
+  };
+
+  const toggleBoleta = (boletaId: number) => {
+    setSelectedIds((current) => current.includes(boletaId)
+      ? current.filter((id) => id !== boletaId)
+      : [...current, boletaId]);
+  };
+
   const handlePDF = () => {
     const textToExport = editedBoletaText || liveBoletaText;
     if (!activeWorker || !textToExport) return;
@@ -218,6 +280,16 @@ export function AdminVentanilla() {
       total_dscto: selectedBoleta.total_dscto || "0.00",
       total_liquido: selectedBoleta.total_liquido || "0.00",
     });
+    // The preview textarea is independently editable, so restoring fields alone
+    // may not change liveBoletaText (for example, after editing only the preview).
+    // Reset the visible document directly from the original saved boleta too.
+    setEditedBoletaText(
+      buildBoletaText(
+        boletaItemToWorker(selectedBoleta),
+        selectedBoleta.mes,
+        selectedBoleta.anio
+      )
+    );
     toast({
       title: "Datos restablecidos",
       description: "Se han recuperado los datos cargados originalmente desde la planilla.",
@@ -294,27 +366,33 @@ export function AdminVentanilla() {
           <span className="text-[11px] text-slate-300">
             Sin clave requerida
           </span>
+          <TutorialDialog audience="admin" />
         </div>
 
         <div className="p-4 bg-slate-50 border-b border-slate-200">
-          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row items-center gap-2">
+          <form onSubmit={handleSearch} className="space-y-3">
+            <div className="flex flex-col sm:flex-row items-center gap-2">
             <div className="relative flex-1 w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
                 type="text"
                 placeholder="Escriba DNI, Apellidos o Nombres del trabajador..."
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  clearDisplayedResults();
+                }}
                 className="h-10 rounded border-slate-300 pl-9 pr-8 text-sm bg-white focus:border-blue-600"
               />
-              {query && (
+              {(query || categoryId || dateFrom || dateTo) && (
                 <button
                   type="button"
                   onClick={() => {
                     setQuery("");
-                    setResults([]);
-                    setSelectedBoleta(null);
-                    setHasSearched(false);
+                    setCategoryId("");
+                    setDateFrom("");
+                    setDateTo("");
+                    clearDisplayedResults();
                   }}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
@@ -325,7 +403,7 @@ export function AdminVentanilla() {
 
             <Button
               type="submit"
-              disabled={loading || !query.trim()}
+                disabled={loading || (!query.trim() && !categoryId && !dateFrom && !dateTo)}
               className="h-10 px-5 rounded bg-[#0d6efd] hover:bg-[#0b5ed7] font-bold text-white text-xs shadow-sm shrink-0 w-full sm:w-auto"
             >
               {loading ? (
@@ -338,10 +416,46 @@ export function AdminVentanilla() {
                 </>
               )}
             </Button>
+            </div>
+
+            <div className="rounded border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-700">
+                <Sliders className="h-3.5 w-3.5 text-blue-700" /> Filtros avanzados
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-slate-600">Tipo de CAS</Label>
+                  <Select value={categoryId || "all"} onValueChange={(value) => { setCategoryId(value === "all" ? "" : value); clearDisplayedResults(); }}>
+                    <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Todos los CAS" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los CAS</SelectItem>
+                      {CATEGORIAS_PLANILLA.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>{category.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="admin-date-from" className="text-[11px] font-semibold text-slate-600">Desde</Label>
+                  <Input id="admin-date-from" type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); clearDisplayedResults(); }} className="h-9 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="admin-date-to" className="text-[11px] font-semibold text-slate-600">Hasta</Label>
+                  <Input id="admin-date-to" type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); clearDisplayedResults(); }} className="h-9 text-xs" />
+                </div>
+              </div>
+              {(categoryId || dateFrom || dateTo) && (
+                <button
+                  type="button"
+                  onClick={() => { setCategoryId(""); setDateFrom(""); setDateTo(""); clearDisplayedResults(); }}
+                  className="mt-2 text-[11px] font-semibold text-blue-700 hover:underline"
+                >Limpiar filtros</button>
+              )}
+            </div>
           </form>
 
           <p className="mt-1.5 text-[11px] text-slate-500">
-            * Consulta histórica inmediata en todas las planillas cargadas de la UGEL 04.
+            * Busca por persona, tipo de CAS o periodo. Puedes combinar los filtros; el rango incluye los meses seleccionados.
           </p>
         </div>
       </div>
@@ -354,14 +468,33 @@ export function AdminVentanilla() {
             No se encontraron registros coincidentes
           </h4>
           <p className="text-xs text-slate-500 mt-1">
-            Verifique el DNI o los apellidos ingresados en el buscador.
+            Verifique la búsqueda o pruebe con otro tipo de CAS o rango de fechas.
           </p>
         </div>
       )}
 
       {/* Resultados y Previsualización */}
       {results.length > 0 && (
-        <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 rounded border border-slate-300 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 text-xs">
+              <span className="font-bold text-slate-800">{results.length} boletas encontradas</span>
+              <label className="inline-flex cursor-pointer items-center gap-1.5 text-slate-600">
+                <input type="checkbox" checked={selectedIds.length === results.length} onChange={(event) => setSelectedIds(event.target.checked ? results.map((item) => item.boleta_id) : [])} className="h-4 w-4 rounded border-slate-300 accent-blue-700" />
+                Seleccionar todas
+              </label>
+              <span className="text-slate-500">{selectedIds.length} seleccionadas</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={handlePrintSelected} disabled={!selectedIds.length} className="h-8 text-xs">
+                <Printer className="mr-1.5 h-3.5 w-3.5" /> Imprimir seleccionadas
+              </Button>
+              <Button size="sm" onClick={handleDownloadSelected} disabled={!selectedIds.length} className="h-8 bg-[#dc3545] text-xs text-white hover:bg-[#bb2d3b]">
+                <Download className="mr-1.5 h-3.5 w-3.5" /> PDF combinado
+              </Button>
+            </div>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
           {/* Lista de Resultados (List-Group) */}
           <div className="space-y-2">
             <div className="bg-slate-200 text-slate-800 px-3 py-2 rounded-t text-xs font-bold border border-slate-300 flex items-center justify-between">
@@ -373,16 +506,16 @@ export function AdminVentanilla() {
               {results.map((item) => {
                 const isSelected = item.boleta_id === selectedBoleta?.boleta_id;
                 return (
-                  <button
+                  <div
                     key={item.boleta_id}
-                    type="button"
-                    onClick={() => setSelectedBoleta(item)}
-                    className={`w-full text-left p-3 text-xs transition block ${
+                    className={`flex items-start gap-2 p-3 text-xs transition ${
                       isSelected
                         ? "bg-[#e7f1ff] text-[#084298] font-bold border-l-4 border-l-[#0d6efd]"
                         : "hover:bg-slate-50 text-slate-800"
                     }`}
                   >
+                    <input type="checkbox" aria-label={`Seleccionar boleta de ${item.ap_paterno} ${item.ap_materno}, ${item.mes} ${item.anio}`} checked={selectedIds.includes(item.boleta_id)} onChange={() => toggleBoleta(item.boleta_id)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 accent-blue-700" />
+                    <button type="button" onClick={() => setSelectedBoleta(item)} className="min-w-0 flex-1 text-left">
                     <div className="flex items-start justify-between">
                       <div className="min-w-0">
                         <p className="font-bold text-slate-900 truncate">
@@ -405,7 +538,8 @@ export function AdminVentanilla() {
                         S/. {item.total_liquido}
                       </span>
                     </div>
-                  </button>
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -595,11 +729,12 @@ export function AdminVentanilla() {
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
 
       {/* Portal de Impresión Limpia (1 sola página A4) */}
-      <PrintBoletaPortal text={editedBoletaText || liveBoletaText} />
+      <PrintBoletaPortal text={printTexts.length ? printTexts : editedBoletaText || liveBoletaText} />
     </div>
   );
 }

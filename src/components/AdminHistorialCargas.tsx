@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
 import {
   fetchCargasPlanilla,
-  deleteCargaPlanilla,
   CargaPlanillaItem,
 } from "@/lib/payrollService";
 import { Button } from "@/components/ui/button";
-import { toast } from "@/hooks/use-toast";
 import {
   Table,
   TableBody,
@@ -15,18 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   History,
-  Trash2,
   RefreshCw,
   FileSpreadsheet,
   Users,
@@ -37,8 +24,6 @@ import {
 export function AdminHistorialCargas() {
   const [cargas, setCargas] = useState<CargaPlanillaItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<CargaPlanillaItem | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -53,33 +38,6 @@ export function AdminHistorialCargas() {
   useEffect(() => {
     loadData();
   }, []);
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-
-    setDeleting(true);
-    try {
-      const res = await deleteCargaPlanilla(deleteTarget.id);
-      if (!res.ok) {
-        toast({
-          title: "Error al eliminar",
-          description: res.error || "No se pudo eliminar el registro.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      toast({
-        title: "Planilla eliminada",
-        description: `Se eliminó la planilla de ${deleteTarget.categoria_label} (${deleteTarget.mes} ${deleteTarget.anio}).`,
-      });
-
-      setDeleteTarget(null);
-      await loadData();
-    } finally {
-      setDeleting(false);
-    }
-  };
 
   return (
     <div className="space-y-3">
@@ -119,7 +77,7 @@ export function AdminHistorialCargas() {
                 No existen planillas publicadas
               </h4>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Vaya a &quot;Cargar Planilla Excel&quot; para publicar el primer archivo.
+                Vaya a &quot;Importar Planilla Excel&quot; para publicar el primer archivo.
               </p>
             </div>
           ) : (
@@ -132,7 +90,6 @@ export function AdminHistorialCargas() {
                     <TableHead className="font-bold text-slate-800">Boletas</TableHead>
                     <TableHead className="font-bold text-slate-800">Archivo Original</TableHead>
                     <TableHead className="font-bold text-slate-800">Fecha de Registro</TableHead>
-                    <TableHead className="text-right font-bold text-slate-800">Acción</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -170,17 +127,6 @@ export function AdminHistorialCargas() {
                           minute: "2-digit",
                         })}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteTarget(item)}
-                          className="h-7 w-7 p-0 text-[#dc3545] hover:text-[#bb2d3b] hover:bg-red-50 rounded"
-                          title="Eliminar planilla del sistema"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -189,38 +135,6 @@ export function AdminHistorialCargas() {
           )}
         </div>
       </div>
-
-      {/* Modal Confirmación de Eliminación */}
-      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent className="bg-white rounded border border-slate-300">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-sm font-bold text-slate-900">
-              ¿Eliminar planilla del histórico?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-slate-600">
-              Se eliminará el registro de{" "}
-              <strong>{deleteTarget?.categoria_label} ({deleteTarget?.mes} {deleteTarget?.anio})</strong>{" "}
-              con <strong>{deleteTarget?.total_trabajadores} boletas</strong>.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded text-xs h-8">Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={deleting}
-              className="rounded bg-[#dc3545] hover:bg-[#bb2d3b] text-white text-xs h-8 font-bold"
-            >
-              {deleting ? (
-                <>
-                  <Loader2 className="mr-1 h-3 w-3 animate-spin" /> Eliminando...
-                </>
-              ) : (
-                "Confirmar Eliminación"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

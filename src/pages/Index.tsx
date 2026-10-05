@@ -5,12 +5,21 @@ import { AdminLogin } from "@/components/AdminLogin";
 import { AdminVentanilla } from "@/components/AdminVentanilla";
 import { AdminUploadExcel } from "@/components/AdminUploadExcel";
 import { AdminHistorialCargas } from "@/components/AdminHistorialCargas";
-import { Button } from "@/components/ui/button";
 import { Session } from "@supabase/supabase-js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   User,
   Shield,
   LogOut,
+  UserRound,
+  ChevronDown,
   Users,
   Upload,
   History,
@@ -77,20 +86,37 @@ const Index = () => {
             {/* Estado de Sesión / Botón Salir */}
             <div className="flex items-center gap-2 self-end md:self-center">
               {session && mainTab === "admin" && (
-                <div className="flex items-center gap-2 bg-[#153457] border border-[#224b7a] px-3 py-1.5 rounded text-xs">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                  <span className="text-slate-200 font-mono font-medium truncate max-w-[200px]" title={session.user?.email}>
-                    {session.user?.email}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="ml-2 text-slate-300 hover:text-red-300 text-xs font-semibold underline flex items-center gap-1"
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                    <span>Cerrar sesión</span>
-                  </button>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md border border-[#31577e] bg-[#153457] px-3 py-2 text-left text-xs font-semibold text-white shadow-sm transition hover:bg-[#1b4169] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      aria-label="Abrir menú de cuenta administrativa"
+                    >
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#254d75] text-emerald-400">
+                        <UserRound className="h-4 w-4" />
+                      </span>
+                      <span>ADMIN</span>
+                      <ChevronDown className="h-3.5 w-3.5 text-slate-300" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" sideOffset={8} className="w-72 border-slate-200 bg-white p-1.5 shadow-xl">
+                    <DropdownMenuLabel className="px-3 pb-1 pt-2 text-sm font-bold tracking-wide text-[#0b223d]">
+                      ADMIN - UGEL04TSE
+                    </DropdownMenuLabel>
+                    <div className="px-3 pb-2 text-xs text-slate-500 break-all" title={session.user?.email}>
+                      {session.user?.email}
+                    </div>
+                    <DropdownMenuSeparator className="bg-slate-200" />
+                    <DropdownMenuItem
+                      onSelect={handleLogout}
+                      className="mt-1 cursor-pointer gap-2 px-3 py-2 text-sm font-semibold text-red-700 focus:bg-red-50 focus:text-red-800"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Cerrar sesión
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
           </div>
@@ -100,11 +126,11 @@ const Index = () => {
       {/* 2. Pestañas de Navegación Principales (Estilo Bootstrap Nav-Tabs) */}
       <nav className="no-print bg-[#132f50] text-slate-200 border-b border-slate-300 shadow-sm">
         <div className="container mx-auto px-4">
-          <div className="flex space-x-1">
+          <div className="flex w-full space-x-1 sm:w-auto">
             <button
               type="button"
               onClick={() => setMainTab("trabajador")}
-              className={`inline-flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-all ${
+              className={`inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-center text-[11px] leading-tight font-semibold border-b-2 transition-all sm:flex-none sm:gap-2 sm:px-5 sm:py-3 sm:text-sm ${
                 mainTab === "trabajador"
                   ? "bg-[#f4f6f9] text-[#0b223d] border-[#c59b27] font-bold shadow-inner"
                   : "text-slate-200 border-transparent hover:text-white hover:bg-[#1a3d66]"
@@ -117,7 +143,7 @@ const Index = () => {
             <button
               type="button"
               onClick={() => setMainTab("admin")}
-              className={`inline-flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-all ${
+              className={`inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-center text-[11px] leading-tight font-semibold border-b-2 transition-all sm:flex-none sm:gap-2 sm:px-5 sm:py-3 sm:text-sm ${
                 mainTab === "admin"
                   ? "bg-[#f4f6f9] text-[#0b223d] border-[#c59b27] font-bold shadow-inner"
                   : "text-slate-200 border-transparent hover:text-white hover:bg-[#1a3d66]"
@@ -131,7 +157,7 @@ const Index = () => {
       </nav>
 
       {/* 3. Contenido Principal */}
-      <main className="container mx-auto px-4 py-5 flex-1 max-w-7xl">
+      <main className="container mx-auto flex-1 max-w-7xl px-3 py-4 sm:px-4 sm:py-5">
         {/* MODO 1: Consulta del Trabajador */}
         {mainTab === "trabajador" && <TrabajadorConsulta />}
 
@@ -168,7 +194,7 @@ const Index = () => {
                       }`}
                     >
                       <Upload className="h-3.5 w-3.5 text-emerald-400" />
-                      <span>Cargar Planilla Excel</span>
+                      <span>Importar Planilla Excel</span>
                     </button>
 
                     <button
