@@ -42,7 +42,23 @@ import {
   Sliders,
 } from "lucide-react";
 
-export function AdminVentanilla() {
+const MESES_FECHA: Record<string, string> = {
+  ENERO: "01", FEBRERO: "02", MARZO: "03", ABRIL: "04", MAYO: "05", JUNIO: "06",
+  JULIO: "07", AGOSTO: "08", SEPTIEMBRE: "09", SETIEMBRE: "09", OCTUBRE: "10",
+  NOVIEMBRE: "11", DICIEMBRE: "12",
+};
+
+export interface VentanillaInitialFilters {
+  categoriaId?: string;
+  mes?: string;
+  anio?: string;
+}
+
+interface AdminVentanillaProps {
+  initialFilters?: VentanillaInitialFilters | null;
+}
+
+export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -98,6 +114,59 @@ export function AdminVentanilla() {
       setLoading(false);
     }
   };
+
+  // Aplicar filtros iniciales desde el historial
+  useEffect(() => {
+    if (initialFilters && (initialFilters.categoriaId || initialFilters.mes)) {
+      const catId = initialFilters.categoriaId || "";
+      const mes = (initialFilters.mes || "").toUpperCase();
+      const anio = initialFilters.anio || "";
+
+      setCategoryId(catId);
+
+      // Calcular rango de fechas para el mes
+      if (mes && anio && MESES_FECHA[mes]) {
+        const mesNum = MESES_FECHA[mes];
+        const from = `${anio}-${mesNum}-01`;
+        // Último día del mes
+        const lastDay = new Date(Number(anio), Number(mesNum), 0).getDate();
+        const to = `${anio}-${mesNum}-${String(lastDay).padStart(2, "0")}`;
+        setDateFrom(from);
+        setDateTo(to);
+      }
+
+      // Auto-ejecutar la búsqueda tras un pequeño delay para que los estados se actualicen
+      const timer = setTimeout(() => {
+        const mesNum = mes && MESES_FECHA[mes] ? MESES_FECHA[mes] : "";
+        const from = mesNum ? `${anio}-${mesNum}-01` : "";
+        const lastDay = mesNum ? new Date(Number(anio), Number(mesNum), 0).getDate() : 0;
+        const to = mesNum ? `${anio}-${mesNum}-${String(lastDay).padStart(2, "0")}` : "";
+
+        setLoading(true);
+        setHasSearched(true);
+        setSelectedIds([]);
+
+        searchAdminBoletas({
+          searchTerm: "",
+          categoriaId: catId,
+          desde: from,
+          hasta: to,
+        }).then((data) => {
+          setResults(data);
+          if (data.length > 0) {
+            setSelectedBoleta(data[0]);
+          } else {
+            setSelectedBoleta(null);
+          }
+        }).finally(() => {
+          setLoading(false);
+        });
+      }, 100);
+
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFilters]);
 
   // Inicializar formData al seleccionar una boleta
   useEffect(() => {

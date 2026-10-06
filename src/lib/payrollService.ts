@@ -93,50 +93,180 @@ function chunkArray<T>(array: T[], size: number): T[][] {
   return result;
 }
 
-export async function checkPlanillaExists(anio: string, mes: string, categoriaId: string): Promise<CargaPlanillaItem | null> {
+export const CATEGORIA_LABELS_MAP: Record<string, string> = {
+  sede: "CAS SEDE",
+  jec: "CAS JEC",
+  orquestando: "CAS ORQUESTANDO",
+  seho: "CAS HOSPITALARIOS",
+  hospitalarios: "CAS HOSPITALARIOS",
+  ebe: "CAS MEDICA-CEBE",
+  "medica-cebe": "CAS MEDICA-CEBE",
+  winanq: "CAS WIÑANQ",
+  convivencia: "CAS CONVIVENCIA",
+  mantenimiento: "CAS MANTENIMIENTO",
+};
+
+export function resolveCategoriaLabel(
+  categoriaId?: string | null,
+  fallbackLabel?: string | null
+): string {
+  if (!categoriaId) return fallbackLabel || "CAS";
+  const normalizedId = categoriaId.toLowerCase().trim();
+  if (CATEGORIA_LABELS_MAP[normalizedId]) {
+    return CATEGORIA_LABELS_MAP[normalizedId];
+  }
+  return fallbackLabel || categoriaId.toUpperCase();
+}
+
+export async function syncCategoriasInDb(): Promise<void> {
+  try {
+    await supabase.from("categorias").upsert([
+      { id: "sede", label: "CAS SEDE" },
+      { id: "jec", label: "CAS JEC" },
+      { id: "orquestando", label: "CAS ORQUESTANDO" },
+      { id: "seho", label: "CAS HOSPITALARIOS" },
+      { id: "ebe", label: "CAS MEDICA-CEBE" },
+      { id: "winanq", label: "CAS WIÑANQ" },
+      { id: "convivencia", label: "CAS CONVIVENCIA" },
+      { id: "mantenimiento", label: "CAS MANTENIMIENTO" },
+    ]);
+  } catch (err) {
+    console.warn("Sincronización de categorías omitida:", err);
+  }
+}
+
+export interface ExistingFileInfo {
+  id: string;
+  nombre_archivo: string;
+  total_trabajadores: number;
+  created_at: string;
+}
+
+export interface DuplicatePlanillaInfo {
+  period: string;
+  categoriaLabel: string;
+  count: number;
+  totalTrabajadores: number;
+  existingFiles: ExistingFileInfo[];
+}
+
+export interface SavePlanillaParams {
+  filename: string;
+  categoriaId: string;
+  period: { mes: string; anio: string };
+  workers: Worker[];
+  overwrite?: boolean;
+  saveMode?: "check" | "append" | "replace";
+  onProgress?: (step: string, percent: number) => void;
+}
+
+export interface SavePlanillaResult {
+  ok: boolean;
+  error?: string;
+  isDuplicate?: boolean;
+  duplicateInfo?: DuplicatePlanillaInfo;
+  totalSaved?: number;
+}
+
+export async function getExistingPlanillas(
+  anio: string,
+  mes: string,
+  categoriaId: string
+): Promise<CargaPlanillaItem[]> {
   const { data, error } = await supabase
     .from("cargas_planilla")
     .select("id, anio, mes, categoria_id, nombre_archivo, total_trabajadores, created_at")
     .eq("anio", anio)
     .eq("mes", mes)
     .eq("categoria_id", categoriaId)
-    .maybeSingle();
+    .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Error al verificar planilla existente:", error);
-    return null;
+    console.error("Error al verificar planillas existentes:", error);
+    return [];
   }
 
-  return data as CargaPlanillaItem | null;
+  return (data || []).map((item) => ({
+    id: String(item.id),
+    anio: String(item.anio),
+    mes: String(item.mes),
+    categoria_id: String(item.categoria_id),
+    nombre_archivo: String(item.nombre_archivo),
+    total_trabajadores: Number(item.total_trabajadores) || 0,
+    created_at: String(item.created_at),
+    categoria_label: resolveCategoriaLabel(item.categoria_id),
+  }));
 }
 
-export async function savePlanillaToDatabase(params: {
-  filename: string;
-  categoriaId: string;
-  period: { mes: string; anio: string };
-  workers: Worker[];
-  overwrite?: boolean;
-  onProgress?: (step: string, percent: number) => void;
-}): Promise<{ ok: boolean; error?: string; totalSaved?: number }> {
-  const { filename, categoriaId, period, workers, overwrite, onProgress } = params;
+export async function checkPlanillaExists(
+  anio: string,
+  mes: string,
+  categoriaId: string
+): Promise<CargaPlanillaItem | null> {
+  const list = await getExistingPlanillas(anio, mes, categoriaId);
+  return list.length > 0 ? list[0] : null;
+}
+
+export async function savePlanillaToDatabase(
+  params: SavePlanillaParams
+): Promise<SavePlanillaResult> {
+  const {
+    filename,
+    categoriaId,
+    period,
+    workers,
+    overwrite,
+    saveMode = "check",
+    onProgress,
+  } = params;
 
   try {
-    onProgress?.("Verificando registros existentes...", 10);
-    const existing = await checkPlanillaExists(period.anio, period.mes, categoriaId);
+    // Sincronizar nombres oficiales en la tabla de categorías
+    syncCategoriasInDb().catch(() => {});
 
-    if (existing && !overwrite) {
+    onProgress?.("Verificando registros existentes...", 10);
+    const existingList = await getExistingPlanillas(period.anio, period.mes, categoriaId);
+
+    const isReplace = saveMode === "replace" || overwrite === true;
+    const isAppend = saveMode === "append";
+
+    if (existingList.length > 0 && !isReplace && !isAppend) {
+      const totalPrevWorkers = existingList.reduce(
+        (acc, cur) => acc + (cur.total_trabajadores || 0),
+        0
+      );
+      const catLabel = resolveCategoriaLabel(categoriaId);
+
       return {
         ok: false,
-        error: `Ya existe una planilla registrada para ${categoriaId.toUpperCase()} - ${period.mes} ${period.anio} (${existing.total_trabajadores} trabajadores). ¿Deseas reemplazarla?`,
+        isDuplicate: true,
+        error: "DUPLICATE_PERIOD",
+        duplicateInfo: {
+          period: `${period.mes} ${period.anio}`,
+          categoriaLabel: catLabel,
+          count: existingList.length,
+          totalTrabajadores: totalPrevWorkers,
+          existingFiles: existingList.map((e) => ({
+            id: e.id,
+            nombre_archivo: e.nombre_archivo,
+            total_trabajadores: e.total_trabajadores,
+            created_at: e.created_at,
+          })),
+        },
       };
     }
 
-    if (existing && overwrite) {
-      onProgress?.("Eliminando versión anterior...", 20);
+    if (existingList.length > 0 && isReplace) {
+      onProgress?.("Eliminando versión previa...", 20);
+      const matchSameName = existingList.find(
+        (e) => e.nombre_archivo.trim().toLowerCase() === filename.trim().toLowerCase()
+      );
+      const targetToDelete = matchSameName || existingList[0];
+
       const { error: delError } = await supabase
         .from("cargas_planilla")
         .delete()
-        .eq("id", existing.id);
+        .eq("id", targetToDelete.id);
 
       if (delError) {
         throw new Error(`Error al reemplazar la planilla previa: ${delError.message}`);
@@ -264,6 +394,8 @@ export async function fetchCargasPlanilla(): Promise<CargaPlanillaItem[]> {
     `)
     .order("created_at", { ascending: false });
 
+  syncCategoriasInDb().catch(() => {});
+
   if (error) {
     console.error("Error al obtener historial de cargas:", error);
     return [];
@@ -277,7 +409,7 @@ export async function fetchCargasPlanilla(): Promise<CargaPlanillaItem[]> {
     nombre_archivo: item.nombre_archivo,
     total_trabajadores: item.total_trabajadores,
     created_at: item.created_at,
-    categoria_label: item.categorias?.label ?? item.categoria_id.toUpperCase(),
+    categoria_label: resolveCategoriaLabel(item.categoria_id, item.categorias?.label),
   }));
 }
 
@@ -523,7 +655,10 @@ export async function searchAdminBoletas(
     total_liquido: String(item.total_liquido ?? "0.00"),
     mes: item.cargas_planilla?.mes ?? "",
     anio: item.cargas_planilla?.anio ?? "",
-    categoria_label: item.cargas_planilla?.categorias?.label ?? item.cargas_planilla?.categoria_id?.toUpperCase() ?? "CAS",
+    categoria_label: resolveCategoriaLabel(
+      item.cargas_planilla?.categoria_id,
+      item.cargas_planilla?.categorias?.label
+    ),
     boleta_texto_personalizado: item.boleta_texto_personalizado || null,
   })).sort((a, b) => {
     const periodA = `${a.anio}-${MESES_NUMERO[a.mes.toUpperCase()] ?? "00"}`;

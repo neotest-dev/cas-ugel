@@ -41,9 +41,9 @@ export const CATEGORIAS_PLANILLA: CategoriaPlanilla[] = [
     { id: "sede", label: "CAS SEDE", match: ["SEDE"] },
     { id: "jec", label: "CAS JEC", match: ["JEC"] },
     { id: "orquestando", label: "CAS ORQUESTANDO", match: ["ORQUESTANDO"] },
-    { id: "seho", label: "CAS SEHO", match: ["SEHO", "HOSPITALARIO"] },
-    { id: "ebe", label: "CAS EBE INCLUSIVAS", match: ["EBE", "INCLUSIVAS"] },
-    { id: "winanq", label: "CAS WINANQ", match: ["WINANQ", "WINAQ", "WIÑANQ", "WIÑAQ"] },
+    { id: "seho", label: "CAS HOSPITALARIOS", match: ["HOSPITALARIO", "HOSPITALARIOS", "SEHO"] },
+    { id: "ebe", label: "CAS MEDICA-CEBE", match: ["MEDICA-CEBE", "MEDICA CEBE", "MEDICA", "CEBE", "EBE", "INCLUSIVAS"] },
+    { id: "winanq", label: "CAS WIÑANQ", match: ["WIÑANQ", "WIÑAQ", "WINANQ", "WINAQ"] },
     { id: "convivencia", label: "CAS CONVIVENCIA", match: ["CONVIVENCIA"] },
     { id: "mantenimiento", label: "CAS MANTENIMIENTO", match: ["MANTENIMIENTO"] },
 ];

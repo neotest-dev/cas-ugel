@@ -40,10 +40,11 @@ import {
   CheckCircle2,
   ZoomIn,
   ZoomOut,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { exportBoletaToPDF } from "@/lib/pdfExport";
-import { savePlanillaToDatabase } from "@/lib/payrollService";
+import { savePlanillaToDatabase, DuplicatePlanillaInfo } from "@/lib/payrollService";
 import { PrintBoletaPortal } from "./PrintBoletaPortal";
 import ExcelWorker from "../workers/excelWorker.ts?worker";
 
@@ -74,6 +75,7 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
   const [saveStepMsg, setSaveStepMsg] = useState("");
   const [showOverwriteModal, setShowOverwriteModal] = useState(false);
   const [pendingOverwriteMsg, setPendingOverwriteMsg] = useState("");
+  const [duplicateInfo, setDuplicateInfo] = useState<DuplicatePlanillaInfo | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const workerRef = useRef<globalThis.Worker | null>(null);
@@ -108,6 +110,9 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
     setEditedBoletaText("");
     setSelectedCategoryId("");
     setCurrentFilename("");
+    setDuplicateInfo(null);
+    setPendingOverwriteMsg("");
+    setShowOverwriteModal(false);
   }, []);
 
   const handleFile = useCallback(
@@ -234,7 +239,7 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
     exportBoletaToPDF(active, editedBoletaText);
   };
 
-  const handleSaveToDatabase = async (overwrite = false) => {
+  const handleSaveToDatabase = async (mode: "check" | "append" | "replace" = "check") => {
     if (!workers.length || !selectedCategoryId || !period.mes || !period.anio) {
       toast({
         title: "Datos incompletos",
@@ -246,7 +251,13 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
 
     setSavingToDb(true);
     setSaveProgress(5);
-    setSaveStepMsg("Iniciando guardado...");
+    setSaveStepMsg(
+      mode === "replace"
+        ? "Reemplazando planilla anterior..."
+        : mode === "append"
+        ? "Registrando como planilla adicional..."
+        : "Iniciando guardado..."
+    );
 
     try {
       const res = await savePlanillaToDatabase({
@@ -254,7 +265,8 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
         categoriaId: selectedCategoryId,
         period,
         workers,
-        overwrite,
+        saveMode: mode,
+        overwrite: mode === "replace",
         onProgress: (step, percent) => {
           setSaveStepMsg(step);
           setSaveProgress(percent);
@@ -262,8 +274,13 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
       });
 
       if (!res.ok) {
-        if (res.error && res.error.includes("Ya existe una planilla registrada")) {
-          setPendingOverwriteMsg(res.error);
+        if (
+          res.isDuplicate ||
+          res.error === "DUPLICATE_PERIOD" ||
+          (res.error && res.error.includes("Ya existe una planilla registrada"))
+        ) {
+          setDuplicateInfo(res.duplicateInfo || null);
+          setPendingOverwriteMsg(res.error || "");
           setShowOverwriteModal(true);
           return;
         }
@@ -277,11 +294,15 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
       }
 
       toast({
-        title: "Planilla Guardada con Éxito",
-        description: `Se publicaron ${res.totalSaved} boletas para ${selectedCategory?.label} (${period.mes} ${period.anio}).`,
+        title: "¡Planilla Guardada con Éxito!",
+        description:
+          mode === "append"
+            ? `Se registró como planilla adicional (${res.totalSaved} boletas) para ${selectedCategory?.label} (${period.mes} ${period.anio}).`
+            : `Se publicaron ${res.totalSaved} boletas para ${selectedCategory?.label} (${period.mes} ${period.anio}).`,
       });
 
       onPlanillaSaved?.();
+      clearLoadedState();
     } finally {
       setSavingToDb(false);
     }
@@ -404,7 +425,7 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
           <div className="flex flex-wrap items-center gap-1.5">
             <Button
               size="sm"
-              onClick={() => handleSaveToDatabase(false)}
+              onClick={() => handleSaveToDatabase("check")}
               disabled={savingToDb}
               className="h-9 rounded bg-[#198754] hover:bg-[#157347] text-white font-bold text-xs shadow-sm"
             >
@@ -644,28 +665,84 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
         </div>
       </div>
 
-      {/* Modal Confirmación de Sobreescritura */}
+      {/* Modal Confirmación de Sobreescritura o Carga Adicional */}
       <AlertDialog open={showOverwriteModal} onOpenChange={setShowOverwriteModal}>
-        <AlertDialogContent className="bg-white rounded border border-slate-300">
+        <AlertDialogContent className="bg-white rounded border border-slate-300 max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-sm font-bold text-slate-900">
-              ¿Desea reemplazar la planilla existente?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-slate-600">
-              {pendingOverwriteMsg}
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded bg-amber-100 text-amber-700 shrink-0">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <AlertDialogTitle className="text-sm font-bold text-slate-900">
+                Planilla detectada para este periodo
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription asChild>
+              <div className="text-xs text-slate-600 space-y-3 pt-2 text-left">
+                <p>
+                  Ya existe registro para{" "}
+                  <strong className="text-slate-800">
+                    {selectedCategory?.label} · {period.mes} {period.anio}
+                  </strong>
+                  .
+                </p>
+
+                {duplicateInfo && duplicateInfo.existingFiles.length > 0 && (
+                  <div className="bg-slate-50 border border-slate-200 rounded p-2.5 space-y-1.5 max-h-36 overflow-y-auto">
+                    <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+                      Archivos ya registrados en este periodo:
+                    </span>
+                    {duplicateInfo.existingFiles.map((f) => (
+                      <div
+                        key={f.id}
+                        className="flex items-center justify-between text-[11px] text-slate-600 bg-white p-1.5 rounded border border-slate-100"
+                      >
+                        <span className="font-mono truncate max-w-[220px]" title={f.nombre_archivo}>
+                          📄 {f.nombre_archivo}
+                        </span>
+                        <span className="font-semibold text-slate-700 shrink-0">
+                          {f.total_trabajadores} trabajadores
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="rounded bg-blue-50/70 border border-blue-200 p-2.5 text-blue-900 leading-relaxed text-[11px]">
+                  <strong>¿Tienes varios archivos Excel para este mes?</strong>
+                  <br />
+                  Presiona <strong>&quot;Guardar como adicional&quot;</strong> para conservar los archivos anteriores y sumar este nuevo Excel a la base de datos.
+                  <br />
+                  O presiona <strong>&quot;Reemplazar existente&quot;</strong> si este archivo es una corrección que debe sustituir al anterior.
+                </div>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded text-xs h-8">Cancelar</AlertDialogCancel>
-            <AlertDialogAction
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+            <AlertDialogCancel className="rounded text-xs h-9">
+              Cancelar
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => {
                 setShowOverwriteModal(false);
-                handleSaveToDatabase(true);
+                handleSaveToDatabase("replace");
               }}
-              className="rounded bg-[#d63384] hover:bg-[#b02a6b] text-white text-xs h-8 font-bold"
+              className="rounded border-rose-300 text-rose-700 hover:bg-rose-50 text-xs h-9 font-semibold"
             >
-              Sí, reemplazar planilla
-            </AlertDialogAction>
+              Reemplazar existente
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setShowOverwriteModal(false);
+                handleSaveToDatabase("append");
+              }}
+              className="rounded bg-[#198754] hover:bg-[#157347] text-white text-xs h-9 font-bold shadow-sm"
+            >
+              Guardar como adicional
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
