@@ -2,9 +2,9 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { TrabajadorConsulta } from "@/components/TrabajadorConsulta";
 import { AdminLogin } from "@/components/AdminLogin";
-import { AdminVentanilla } from "@/components/AdminVentanilla";
+import { AdminVentanilla, VentanillaInitialFilters } from "@/components/AdminVentanilla";
 import { AdminUploadExcel } from "@/components/AdminUploadExcel";
-import { AdminHistorialCargas } from "@/components/AdminHistorialCargas";
+import { AdminHistorialCargas, HistorialNavigateParams } from "@/components/AdminHistorialCargas";
 import { Session } from "@supabase/supabase-js";
 import {
   DropdownMenu,
@@ -36,6 +36,16 @@ const Index = () => {
   const [adminSubTab, setAdminSubTab] = useState<AdminSubTab>("ventanilla");
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [ventanillaFilters, setVentanillaFilters] = useState<VentanillaInitialFilters | null>(null);
+
+  const handleNavigateToConsulta = (params: HistorialNavigateParams) => {
+    setVentanillaFilters({
+      categoriaId: params.categoriaId,
+      mes: params.mes,
+      anio: params.anio,
+    });
+    setAdminSubTab("ventanilla");
+  };
 
   useEffect(() => {
     document.title = "CAS - UGEL 04 TSE";
@@ -217,11 +227,15 @@ const Index = () => {
                 </div>
 
                 {/* Vista Activa */}
-                {adminSubTab === "ventanilla" && <AdminVentanilla />}
+                {adminSubTab === "ventanilla" && (
+                  <AdminVentanilla initialFilters={ventanillaFilters} />
+                )}
                 {adminSubTab === "upload" && (
                   <AdminUploadExcel onPlanillaSaved={() => setAdminSubTab("historial")} />
                 )}
-                {adminSubTab === "historial" && <AdminHistorialCargas />}
+                {adminSubTab === "historial" && (
+                  <AdminHistorialCargas onNavigateToConsulta={handleNavigateToConsulta} />
+                )}
               </div>
             )}
           </div>

@@ -76,6 +76,7 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
   const [zoom, setZoom] = useState(100);
   const [savingDb, setSavingDb] = useState(false);
   const [editedBoletaText, setEditedBoletaText] = useState("");
+  const [activeHistorialFilterLabel, setActiveHistorialFilterLabel] = useState<string | null>(null);
 
   const clearDisplayedResults = () => {
     setResults([]);
@@ -123,6 +124,11 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
       const anio = initialFilters.anio || "";
 
       setCategoryId(catId);
+
+      const catObj = CATEGORIAS_PLANILLA.find((c) => c.id === catId);
+      const catText = catObj ? catObj.label : (catId ? catId.toUpperCase() : "Todas las categorías");
+      const periodText = mes && anio ? `${mes} ${anio}` : anio || "";
+      setActiveHistorialFilterLabel(`${catText} · ${periodText}`);
 
       // Calcular rango de fechas para el mes
       if (mes && anio && MESES_FECHA[mes]) {
@@ -439,6 +445,37 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
         </div>
 
         <div className="p-4 bg-slate-50 border-b border-slate-200">
+          {activeHistorialFilterLabel && (
+            <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-900 shadow-xs">
+              <div className="flex items-center gap-2">
+                <Sliders className="h-4 w-4 text-blue-600 shrink-0" />
+                <span>
+                  Filtro aplicado desde el Historial:{" "}
+                  <strong className="text-blue-900 font-bold">{activeHistorialFilterLabel}</strong>
+                  {results.length > 0 && (
+                    <span className="ml-1.5 bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded text-[11px] font-bold">
+                      {results.length} boletas encontradas
+                    </span>
+                  )}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveHistorialFilterLabel(null);
+                  setCategoryId("");
+                  setDateFrom("");
+                  setDateTo("");
+                  setQuery("");
+                  clearDisplayedResults();
+                }}
+                className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline shrink-0 self-end sm:self-auto"
+              >
+                Limpiar filtro / Ver todo
+              </button>
+            </div>
+          )}
+
           <form onSubmit={handleSearch} className="space-y-3">
             <div className="flex flex-col sm:flex-row items-center gap-2">
             <div className="relative flex-1 w-full">
@@ -457,6 +494,7 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
                 <button
                   type="button"
                   onClick={() => {
+                    setActiveHistorialFilterLabel(null);
                     setQuery("");
                     setCategoryId("");
                     setDateFrom("");
