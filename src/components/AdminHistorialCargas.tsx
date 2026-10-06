@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   fetchCargasPlanilla,
   CargaPlanillaItem,
@@ -32,12 +32,12 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
-  FileText,
   Trash2,
   ExternalLink,
-  CheckCircle2,
   Search,
   Eye,
+  ChevronsDown,
+  ChevronsUp,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
@@ -86,11 +86,27 @@ const CATEGORY_COLORS: Record<string, string> = {
   mantenimiento: "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200",
 };
 
+/**
+ * Genera la URL con parámetros para abrir en una nueva pestaña (target="_blank")
+ */
+function buildConsultaUrl(params: HistorialNavigateParams): string {
+  const searchParams = new URLSearchParams();
+  searchParams.set("tab", "admin");
+  searchParams.set("subtab", "ventanilla");
+  if (params.categoriaId) searchParams.set("categoria", params.categoriaId);
+  if (params.mes) searchParams.set("mes", params.mes);
+  if (params.anio) searchParams.set("anio", params.anio);
+  return `/?${searchParams.toString()}`;
+}
+
 export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCargasProps) {
   const [cargas, setCargas] = useState<CargaPlanillaItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState("");
-  const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
+  // Estado de meses expandidos (permite abrir y cerrar individualmente)
+  const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
+  const initialOpenDoneRef = useRef(false);
+
   const [deleteTarget, setDeleteTarget] = useState<CargaPlanillaItem | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -108,7 +124,7 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
     loadData();
   }, []);
 
-  // Años disponibles (asegurando el año actual siempre)
+  // Años disponibles (incluyendo año actual por defecto)
   const availableYears = useMemo(() => {
     const yearsSet = new Set<string>();
     for (const c of cargas) {
@@ -119,14 +135,14 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
     return [...yearsSet].sort((a, b) => b.localeCompare(a));
   }, [cargas]);
 
-  // Auto-seleccionar el año más reciente
+  // Auto-seleccionar año más reciente
   useEffect(() => {
     if (!selectedYear && availableYears.length > 0) {
       setSelectedYear(availableYears[0]);
     }
   }, [availableYears, selectedYear]);
 
-  // Agrupación de planillas del año por mes
+  // Agrupación por mes del año seleccionado
   const monthsData = useMemo((): MonthData[] => {
     if (!selectedYear) return [];
 
@@ -139,7 +155,6 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
       mesMap.get(mesNorm)!.push(carga);
     }
 
-    // Meses conocidos en orden cronológico inverso
     const knownMonths = MESES_ORDEN.filter((m) => mesMap.has(m));
     const extraMonths = [...mesMap.keys()].filter((m) => !MESES_ORDEN.includes(m));
     const allPresentMonths = [...knownMonths, ...extraMonths];
@@ -155,15 +170,34 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
           totalBoletas: cargasMes.reduce((sum, c) => sum + (c.total_trabajadores || 0), 0),
         };
       })
-      .reverse(); // Más recientes primero
+      .reverse(); // Más reciente primero
   }, [cargas, selectedYear]);
 
-  // Si no hay mes expandido y hay meses, expandir el más reciente por defecto
+  // En la carga inicial de datos, abrir solo el mes más reciente una sola vez
   useEffect(() => {
-    if (monthsData.length > 0 && !expandedMonth) {
-      setExpandedMonth(monthsData[0].mes);
+    if (!initialOpenDoneRef.current && monthsData.length > 0) {
+      setExpandedMonths({ [monthsData[0].mes]: true });
+      initialOpenDoneRef.current = true;
     }
-  }, [monthsData, expandedMonth]);
+  }, [monthsData]);
+
+  // Alternar apertura/cierre de un mes específico (dropdown)
+  const toggleMonth = (mes: string) => {
+    setExpandedMonths((prev) => ({
+      ...prev,
+      [mes]: !prev[mes],
+    }));
+  };
+
+  const expandAll = () => {
+    const all: Record<string, boolean> = {};
+    for (const m of monthsData) all[m.mes] = true;
+    setExpandedMonths(all);
+  };
+
+  const collapseAll = () => {
+    setExpandedMonths({});
+  };
 
   // Estadísticas del año seleccionado
   const yearStats = useMemo(() => {
@@ -175,7 +209,7 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
     };
   }, [cargas, selectedYear]);
 
-  // Mapeo rápido de los 12 meses para el calendario resumen
+  // Mini calendario de 12 meses
   const calendarMonthsStatus = useMemo(() => {
     const yearCargas = cargas.filter((c) => String(c.anio).trim() === String(selectedYear).trim());
     const map = new Map<string, { totalBoletas: number; totalCargas: number }>();
@@ -195,7 +229,7 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
     }));
   }, [cargas, selectedYear]);
 
-  // Categorías únicas por mes
+  // Categorías por mes
   const getCategoriesForMonth = (cargas: CargaPlanillaItem[]) => {
     const catMap = new Map<string, { id: string; label: string; totalBoletas: number; count: number }>();
     for (const c of cargas) {
@@ -213,12 +247,6 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
       }
     }
     return [...catMap.values()];
-  };
-
-  const handleCategoryClick = (categoriaId: string, mes: string) => {
-    if (onNavigateToConsulta) {
-      onNavigateToConsulta({ categoriaId, mes, anio: selectedYear });
-    }
   };
 
   const handleDelete = async () => {
@@ -302,10 +330,7 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
                   <button
                     key={year}
                     type="button"
-                    onClick={() => {
-                      setSelectedYear(year);
-                      setExpandedMonth(null);
-                    }}
+                    onClick={() => setSelectedYear(year)}
                     className={`inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-bold transition-all ${
                       isSelected
                         ? "bg-[#0b223d] text-white shadow-sm ring-2 ring-blue-500/20"
@@ -329,7 +354,7 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
           </div>
 
           <span className="text-[11px] text-slate-500 hidden sm:inline">
-            Haga clic en una categoría o mes para ver las boletas filtradas en <strong>Consultar</strong>
+            Haga clic en una categoría o en <strong>Consultar</strong> para abrir la búsqueda en una <strong>nueva pestaña</strong>
           </span>
         </div>
 
@@ -369,42 +394,47 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
               {/* 4. Mini Calendario Resumen de los 12 Meses */}
               <div className="bg-slate-50 border border-slate-200 rounded p-3">
                 <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-2">
-                  Vista rápida anual {selectedYear}:
+                  Vista rápida anual {selectedYear} (haga clic para desplegar):
                 </span>
                 <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-12 gap-1.5">
-                  {calendarMonthsStatus.map((m) => (
-                    <button
-                      key={m.mes}
-                      type="button"
-                      disabled={!m.hasData}
-                      onClick={() => {
-                        if (m.hasData) setExpandedMonth(m.mes);
-                      }}
-                      className={`p-1.5 rounded text-center transition border ${
-                        m.hasData
-                          ? expandedMonth === m.mes
-                            ? "bg-[#0b223d] text-white border-[#0b223d] shadow-sm font-bold"
-                            : "bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-50 font-bold"
-                          : "bg-slate-100 text-slate-400 border-slate-200 opacity-60 cursor-not-allowed text-[11px]"
-                      }`}
-                      title={
-                        m.hasData
-                          ? `${m.mes}: ${m.totalBoletas} boletas en ${m.totalCargas} archivo(s)`
-                          : `${m.mes}: Sin planilla cargada`
-                      }
-                    >
-                      <div className="text-xs leading-none">{m.corto}</div>
-                      <div className="text-[9px] mt-1 font-mono leading-none">
-                        {m.hasData ? (
-                          <span className={expandedMonth === m.mes ? "text-amber-300" : "text-emerald-700"}>
-                            {m.totalBoletas}
-                          </span>
-                        ) : (
-                          "0"
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                  {calendarMonthsStatus.map((m) => {
+                    const isOpen = !!expandedMonths[m.mes];
+                    return (
+                      <button
+                        key={m.mes}
+                        type="button"
+                        disabled={!m.hasData}
+                        onClick={() => {
+                          if (m.hasData) {
+                            setExpandedMonths((prev) => ({ ...prev, [m.mes]: !prev[m.mes] }));
+                          }
+                        }}
+                        className={`p-1.5 rounded text-center transition border ${
+                          m.hasData
+                            ? isOpen
+                              ? "bg-[#0b223d] text-white border-[#0b223d] shadow-sm font-bold"
+                              : "bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-50 font-bold"
+                            : "bg-slate-100 text-slate-400 border-slate-200 opacity-60 cursor-not-allowed text-[11px]"
+                        }`}
+                        title={
+                          m.hasData
+                            ? `${m.mes}: ${m.totalBoletas} boletas en ${m.totalCargas} archivo(s) - Haga clic para alternar detalle`
+                            : `${m.mes}: Sin planilla cargada`
+                        }
+                      >
+                        <div className="text-xs leading-none">{m.corto}</div>
+                        <div className="text-[9px] mt-1 font-mono leading-none">
+                          {m.hasData ? (
+                            <span className={isOpen ? "text-amber-300" : "text-emerald-700"}>
+                              {m.totalBoletas}
+                            </span>
+                          ) : (
+                            "0"
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -421,17 +451,37 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
                 </div>
               ) : (
                 <div className="space-y-3">
+                  {/* Barra de control para desplegar / colapsar todos */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                       Meses con planillas publicadas ({monthsData.length}):
                     </span>
-                    <span className="text-[11px] text-slate-500">
-                      Haga clic en una categoría para consultar
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={expandAll}
+                        className="h-7 text-[11px] text-slate-600 hover:text-slate-900 px-2 font-semibold"
+                      >
+                        <ChevronsDown className="h-3.5 w-3.5 mr-1" />
+                        Expandir todos
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={collapseAll}
+                        className="h-7 text-[11px] text-slate-600 hover:text-slate-900 px-2 font-semibold"
+                      >
+                        <ChevronsUp className="h-3.5 w-3.5 mr-1" />
+                        Cerrar todos
+                      </Button>
+                    </div>
                   </div>
 
                   {monthsData.map((monthData) => {
-                    const isExpanded = expandedMonth === monthData.mes;
+                    const isExpanded = !!expandedMonths[monthData.mes];
                     const categories = getCategoriesForMonth(monthData.cargas);
 
                     return (
@@ -443,9 +493,9 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
                             : "border-slate-200 hover:border-slate-300"
                         }`}
                       >
-                        {/* Cabecera del Mes */}
+                        {/* Cabecera del Mes (Haga clic para abrir/cerrar el dropdown) */}
                         <div
-                          onClick={() => setExpandedMonth(isExpanded ? null : monthData.mes)}
+                          onClick={() => toggleMonth(monthData.mes)}
                           className={`w-full flex flex-col sm:flex-row sm:items-center justify-between px-4 py-3 cursor-pointer transition select-none gap-2 ${
                             isExpanded ? "bg-blue-50/40" : "bg-slate-50 hover:bg-slate-100"
                           }`}
@@ -475,84 +525,113 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
                             </div>
                           </div>
 
-                          {/* Chips de Categorías y Acciones Directas */}
+                          {/* Chips de Categorías y Acciones (abren en nueva pestaña target="_blank") */}
                           <div className="flex items-center flex-wrap gap-1.5">
-                            {/* Chips de Categorías clickeables directamente */}
-                            {categories.map((cat) => (
-                              <button
-                                key={cat.id}
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCategoryClick(cat.id, monthData.mes);
-                                }}
-                                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded border transition shadow-2xs hover:scale-105 active:scale-95 ${
-                                  CATEGORY_COLORS[cat.id] ||
-                                  "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
-                                }`}
-                                title={`Consultar directamente ${cat.label} de ${monthData.mes} ${selectedYear}`}
-                              >
-                                <span>{cat.label.replace("CAS ", "")}</span>
-                                <span className="bg-white/70 px-1 py-0.2 rounded text-[10px] font-bold ml-0.5">
-                                  {cat.totalBoletas}
-                                </span>
-                                <ExternalLink className="h-2.5 w-2.5 opacity-50 ml-0.5" />
-                              </button>
-                            ))}
+                            {/* Chips de Categorías clickeables directamente con target="_blank" */}
+                            {categories.map((cat) => {
+                              const url = buildConsultaUrl({
+                                categoriaId: cat.id,
+                                mes: monthData.mes,
+                                anio: selectedYear,
+                              });
+                              return (
+                                <a
+                                  key={cat.id}
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded border transition shadow-2xs hover:scale-105 active:scale-95 ${
+                                    CATEGORY_COLORS[cat.id] ||
+                                    "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                                  }`}
+                                  title={`Abrir en nueva pestaña: ${cat.label} de ${monthData.mes} ${selectedYear}`}
+                                >
+                                  <span>{cat.label.replace("CAS ", "")}</span>
+                                  <span className="bg-white/70 px-1 py-0.2 rounded text-[10px] font-bold ml-0.5">
+                                    {cat.totalBoletas}
+                                  </span>
+                                  <ExternalLink className="h-2.5 w-2.5 opacity-60 ml-0.5" />
+                                </a>
+                              );
+                            })}
 
-                            {/* Botón Ver Todo el Mes */}
+                            {/* Botón Ver Todo el Mes (target="_blank") */}
+                            <a
+                              href={buildConsultaUrl({
+                                categoriaId: "",
+                                mes: monthData.mes,
+                                anio: selectedYear,
+                              })}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 shadow-2xs transition"
+                              title={`Abrir en nueva pestaña: TODAS las boletas de ${monthData.mes} ${selectedYear}`}
+                            >
+                              <Eye className="h-3 w-3 text-blue-600" />
+                              <span>Ver todo</span>
+                              <ExternalLink className="h-2.5 w-2.5 text-blue-500 opacity-70" />
+                            </a>
+
+                            {/* Indicador y botón para plegar/desplegar el dropdown del mes */}
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleCategoryClick("", monthData.mes);
+                                toggleMonth(monthData.mes);
                               }}
-                              className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 shadow-2xs transition"
-                              title={`Consultar TODAS las boletas de ${monthData.mes} ${selectedYear}`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 transition"
+                              title={isExpanded ? "Cerrar detalle" : "Ver detalle"}
                             >
-                              <Eye className="h-3 w-3 text-blue-600" />
-                              <span>Ver todo</span>
-                            </button>
-
-                            {/* Chevron expandir */}
-                            <div className="p-1 text-slate-400">
+                              <span className="text-[11px] hidden sm:inline">
+                                {isExpanded ? "Cerrar" : "Detalle"}
+                              </span>
                               {isExpanded ? (
-                                <ChevronDown className="h-4 w-4 text-slate-600" />
+                                <ChevronDown className="h-4 w-4 text-slate-700" />
                               ) : (
-                                <ChevronRight className="h-4 w-4 text-slate-400" />
+                                <ChevronRight className="h-4 w-4 text-slate-500" />
                               )}
-                            </div>
+                            </button>
                           </div>
                         </div>
 
-                        {/* Detalle Expandido */}
+                        {/* Detalle Expandido (Dropdown) */}
                         {isExpanded && (
                           <div className="border-t border-slate-200 bg-white p-4 space-y-3">
-                            {/* Barra de Acceso Rápido a Consultar */}
+                            {/* Barra de Acceso Rápido a Consultar (target="_blank") */}
                             <div className="bg-blue-50/70 border border-blue-200/80 rounded p-3">
                               <span className="text-[11px] font-bold text-blue-900 uppercase tracking-wider block mb-2">
-                                🔍 Consultar boletas en Ventanilla para {monthData.mes} {selectedYear}:
+                                🔍 Abrir consulta en nueva pestaña ({monthData.mes} {selectedYear}):
                               </span>
                               <div className="flex flex-wrap gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={() => handleCategoryClick("", monthData.mes)}
-                                  className="h-8 text-xs bg-[#0b223d] hover:bg-[#153457] text-white font-bold rounded shadow-sm gap-1.5"
+                                <a
+                                  href={buildConsultaUrl({
+                                    categoriaId: "",
+                                    mes: monthData.mes,
+                                    anio: selectedYear,
+                                  })}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 h-8 px-3 text-xs bg-[#0b223d] hover:bg-[#153457] text-white font-bold rounded shadow-sm transition"
                                 >
                                   <Users className="h-3.5 w-3.5 text-amber-300" />
-                                  Ver todas las categorías ({monthData.totalBoletas})
-                                </Button>
+                                  <span>Ver todas las categorías ({monthData.totalBoletas})</span>
+                                  <ExternalLink className="h-3 w-3 text-slate-300" />
+                                </a>
 
                                 {categories.map((cat) => (
-                                  <Button
+                                  <a
                                     key={cat.id}
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleCategoryClick(cat.id, monthData.mes)}
-                                    className={`h-8 text-xs font-bold rounded gap-1.5 ${
-                                      CATEGORY_COLORS[cat.id] || "bg-white text-slate-700 border-slate-300"
+                                    href={buildConsultaUrl({
+                                      categoriaId: cat.id,
+                                      mes: monthData.mes,
+                                      anio: selectedYear,
+                                    })}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-bold rounded border transition ${
+                                      CATEGORY_COLORS[cat.id] || "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
                                     }`}
                                   >
                                     <span>{cat.label}</span>
@@ -560,16 +639,27 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
                                       {cat.totalBoletas}
                                     </span>
                                     <ExternalLink className="h-3 w-3 opacity-60" />
-                                  </Button>
+                                  </a>
                                 ))}
                               </div>
                             </div>
 
                             {/* Lista de Archivos Excel Cargados */}
                             <div>
-                              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-2">
-                                Archivos Excel cargados ({monthData.cargas.length}):
-                              </span>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                                  Archivos Excel cargados ({monthData.cargas.length}):
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleMonth(monthData.mes)}
+                                  className="text-[11px] text-slate-500 hover:text-slate-800 font-semibold underline flex items-center gap-1"
+                                >
+                                  <ChevronDown className="h-3 w-3 rotate-180" />
+                                  Cerrar detalle de {monthData.mes}
+                                </button>
+                              </div>
+
                               <div className="divide-y divide-slate-100 border border-slate-200 rounded overflow-hidden">
                                 {monthData.cargas.map((carga) => (
                                   <div
@@ -615,16 +705,22 @@ export function AdminHistorialCargas({ onNavigateToConsulta }: AdminHistorialCar
                                         {carga.total_trabajadores} boletas
                                       </span>
 
-                                      {/* Botón Consultar */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleCategoryClick(carga.categoria_id, monthData.mes)}
+                                      {/* Botón Consultar (target="_blank") */}
+                                      <a
+                                        href={buildConsultaUrl({
+                                          categoriaId: carga.categoria_id,
+                                          mes: monthData.mes,
+                                          anio: selectedYear,
+                                        })}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
                                         className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded border border-blue-200 transition"
-                                        title={`Ir a consultar las boletas de ${carga.nombre_archivo}`}
+                                        title={`Abrir en nueva pestaña las boletas de ${carga.nombre_archivo}`}
                                       >
                                         <Search className="h-3 w-3" />
                                         <span>Consultar</span>
-                                      </button>
+                                        <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                                      </a>
 
                                       {/* Botón Eliminar */}
                                       <button

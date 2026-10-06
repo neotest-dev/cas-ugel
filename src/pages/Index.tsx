@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { TrabajadorConsulta } from "@/components/TrabajadorConsulta";
 import { AdminLogin } from "@/components/AdminLogin";
@@ -32,11 +33,36 @@ type MainTab = "trabajador" | "admin";
 type AdminSubTab = "ventanilla" | "upload" | "historial";
 
 const Index = () => {
+  const [searchParams] = useSearchParams();
   const [mainTab, setMainTab] = useState<MainTab>("trabajador");
   const [adminSubTab, setAdminSubTab] = useState<AdminSubTab>("ventanilla");
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [ventanillaFilters, setVentanillaFilters] = useState<VentanillaInitialFilters | null>(null);
+
+  // Leer parámetros de URL si viene desde un link externo o target="_blank"
+  useEffect(() => {
+    const tabParam = searchParams.get("tab") as MainTab | null;
+    const subTabParam = searchParams.get("subtab") as AdminSubTab | null;
+    const catParam = searchParams.get("categoria");
+    const mesParam = searchParams.get("mes");
+    const anioParam = searchParams.get("anio");
+
+    if (tabParam === "admin" || catParam !== null || mesParam !== null || anioParam !== null) {
+      setMainTab("admin");
+    }
+    if (subTabParam) {
+      setAdminSubTab(subTabParam);
+    }
+    if (catParam !== null || mesParam !== null || anioParam !== null) {
+      setAdminSubTab("ventanilla");
+      setVentanillaFilters({
+        categoriaId: catParam || "",
+        mes: mesParam || "",
+        anio: anioParam || "",
+      });
+    }
+  }, [searchParams]);
 
   const handleNavigateToConsulta = (params: HistorialNavigateParams) => {
     setVentanillaFilters({
