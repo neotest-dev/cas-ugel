@@ -4,6 +4,7 @@ import {
   CargaPlanillaItem,
   resolveCategoriaLabel,
   deleteCargaPlanilla,
+  deleteCargasPlanilla,
 } from "@/lib/payrollService";
 import { AdminVentanilla, VentanillaInitialFilters } from "@/components/AdminVentanilla";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,13 @@ export function AdminPlanillas() {
   const [searching, setSearching] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CargaPlanillaItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteMonthTarget, setDeleteMonthTarget] = useState<{
+    mes: string;
+    anio: string;
+    count: number;
+    ids: string[];
+  } | null>(null);
+  const [deletingMonth, setDeletingMonth] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -153,6 +161,31 @@ export function AdminPlanillas() {
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
+    }
+  };
+
+  const handleDeleteMonth = async () => {
+    if (!deleteMonthTarget) return;
+    setDeletingMonth(true);
+    try {
+      const res = await deleteCargasPlanilla(deleteMonthTarget.ids);
+      if (res.ok) {
+        toast({
+          title: "Planillas del mes eliminadas",
+          description: `Se eliminaron correctamente los ${deleteMonthTarget.count} archivos de ${toTitleCase(deleteMonthTarget.mes)} ${deleteMonthTarget.anio}.`,
+        });
+        await loadData();
+        goYear();
+      } else {
+        toast({
+          title: "Error al eliminar planillas",
+          description: res.error || "No se pudieron eliminar las planillas del mes.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setDeletingMonth(false);
+      setDeleteMonthTarget(null);
     }
   };
 
@@ -288,9 +321,26 @@ export function AdminPlanillas() {
           ))}
         </div>
 
-        <details className="rounded-lg border border-slate-200 bg-white text-sm shadow-sm">
-          <summary className="cursor-pointer select-none px-4 py-3 font-semibold text-slate-700">
-            Archivos Excel cargados ({monthCargas.length})
+        <details className="rounded-lg border border-slate-200 bg-white text-sm shadow-sm" open>
+          <summary className="cursor-pointer select-none px-4 py-3 font-semibold text-slate-700 flex items-center justify-between">
+            <span>Archivos Excel cargados ({monthCargas.length})</span>
+            {monthCargas.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteMonthTarget({
+                    mes,
+                    anio,
+                    count: monthCargas.length,
+                    ids: monthCargas.map((c) => String(c.id)),
+                  });
+                }}
+                className="inline-flex items-center gap-1.5 rounded border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-700 hover:bg-red-100 transition shadow-sm"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-red-600" /> Borrar todo el mes ({monthCargas.length})
+              </button>
+            )}
           </summary>
           <ul className="divide-y divide-slate-100 border-t border-slate-100">
             {monthCargas.map((carga) => (
@@ -320,7 +370,22 @@ export function AdminPlanillas() {
     <div className="space-y-4">
       <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         {breadcrumb}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {mes && !categoriaId && monthCargas.length > 0 && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => setDeleteMonthTarget({
+                mes,
+                anio,
+                count: monthCargas.length,
+                ids: monthCargas.map((c) => String(c.id)),
+              })}
+              className="h-9 text-xs font-bold"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Borrar todo ({toTitleCase(mes)})
+            </Button>
+          )}
           {!searching && !categoriaId && (
             <Button size="sm" onClick={() => setSearching(true)} className="h-9 bg-[#0d6efd] text-xs font-bold hover:bg-[#0b5ed7]">
               <Search className="mr-1.5 h-3.5 w-3.5" /> Buscar trabajador
@@ -346,6 +411,35 @@ export function AdminPlanillas() {
             <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-red-600 hover:bg-red-700">
               {deleting ? "Eliminando..." : "Eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Diálogo para eliminar todas las planillas del mes */}
+      <AlertDialog open={!!deleteMonthTarget} onOpenChange={(open) => !open && setDeleteMonthTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-700">
+              ¿Eliminar todas las planillas de {toTitleCase(deleteMonthTarget?.mes || "")} {deleteMonthTarget?.anio}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-slate-600">
+              <p>
+                Se eliminarán de forma permanente los <strong>{deleteMonthTarget?.count} archivos Excel</strong> cargados en este mes y todas sus boletas correspondientes en la base de datos.
+              </p>
+              <p className="text-xs font-semibold text-amber-700 bg-amber-50 p-2 rounded border border-amber-200">
+                ⚠️ Esta acción no se puede deshacer.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingMonth}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteMonth}
+              disabled={deletingMonth}
+              className="bg-red-600 hover:bg-red-700 font-bold"
+            >
+              {deletingMonth ? "Eliminando..." : `Sí, borrar ${deleteMonthTarget?.count} planillas`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

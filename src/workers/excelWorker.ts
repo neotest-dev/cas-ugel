@@ -209,7 +209,7 @@ const COLUMN_MAP: Record<keyof Worker, ColumnSpec> = {
   aporteObligatorio: { fallback: ["BL"], headers: ["APORTE OBLIGATORIO", "APORTE OBLIG", "APORTE OB."] },
   comision: { fallback: ["BM"], headers: ["COMISION", "COM. VARIABLE", "COMIS."] },
   primaSeguro: { fallback: ["BN"], headers: ["PRIMA SEGURO", "PRIMA SEG", "PRIMA SEG.", "SEG.", "SEGURO"] },
-  montoMensual: { fallback: ["P", "H"], headers: ["PAGO TOTAL MENSUAL", "MONTO MENSUAL", "REMUNERACION MENSUAL"] },
+  montoMensual: { fallback: ["R", "P"], headers: ["TOTAL PAGADO", "PAGO TOTAL MENSUAL", "TOTAL BRUTO", "TOTAL REMUNERACION", "TOTAL INGRESOS", "REMUNERACION MENSUAL", "MONTO MENSUAL"] },
   descuentoPension: { fallback: ["BH"], headers: ["MONTO SISTEMA PENSION", "DESCUENTO PENSION", "TOT. DSCTO. PENS", "TOTAL DESCTO PENSION"] },
   onp: { fallback: ["S"], headers: ["ONP", "ONP 13%", "DECRETO LEY 19990", "D.L. 19990", "19990"] },
   prima: { fallback: ["T"], headers: ["PRIMA"] },
@@ -220,19 +220,34 @@ const COLUMN_MAP: Record<keyof Worker, ColumnSpec> = {
   otrosDsctos: { fallback: ["AB"], headers: ["OTROS DSCTOS", "OTROS DESCUENTOS", "OTROS DSCTO", "OTRO DSCTO", "OTROS"] },
   dsctoEntidades: { fallback: ["Z"], headers: ["DESCUENTO ENTIDADES", "DSCTO ENTIDADES", "ENTIDADES", "DSCTO. ENTIDADES", "DESC. ENTIDADES", "DESCUENTO POR LCG", "DSCTO POR LCG", "LCG"] },
   dsctoJudicial: { fallback: ["Y"], headers: ["DSCTO JUDICIAL", "DESCUENTO JUDICIAL", "JUDICIAL", "DSCTO. JUDICIAL", "DESC. JUDICIAL"] },
-  totalLiquido: { fallback: ["AD", "AC"], headers: ["TOTAL LIQUIDO", "TOTAL LIQ", "TOT. LIQUIDO", "LIQUIDO"] }
+  totalLiquido: { fallback: ["AC", "AD"], headers: ["TOTAL LIQUIDO", "LIQUIDO PAGABLE", "TOTAL A PAGAR", "LIQUIDO A PAGAR", "NETO A PAGAR", "TOTAL NETO", "TOTAL LIQ", "TOT. LIQUIDO"] }
 };
 
 function findHeaderColumn(headers: string[], names: string[]): number | undefined {
-  for (let i = 1; i < headers.length; i++) {
-    const header = headers[i] ?? "";
-    for (const name of names) {
-      const normalizedName = norm(name);
-      if (normalizedName && header.includes(normalizedName)) {
+  // 1. Prioridad: coincidencia exacta respetando el orden de preferencia de names
+  for (const name of names) {
+    const target = norm(name);
+    if (!target) continue;
+    for (let i = 1; i < headers.length; i++) {
+      const header = norm(headers[i] ?? "");
+      if (header === target) {
         return i;
       }
     }
   }
+
+  // 2. Coincidencia parcial respetando el orden de preferencia de names
+  for (const name of names) {
+    const target = norm(name);
+    if (!target) continue;
+    for (let i = 1; i < headers.length; i++) {
+      const header = norm(headers[i] ?? "");
+      if (header.includes(target)) {
+        return i;
+      }
+    }
+  }
+
   return undefined;
 }
 
@@ -505,7 +520,16 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
         otrosDsctos: money(row[col.otrosDsctos ?? 0]),
         dsctoEntidades: money(row[col.dsctoEntidades ?? 0]),
         dsctoJudicial: money(row[col.dsctoJudicial ?? 0]),
-        totalLiquido: money(row[col.totalLiquido ?? 0]),
+        totalLiquido: (() => {
+          const mVal = Number(money(row[col.montoMensual ?? 0]));
+          const dVal = Number(money(row[col.totalDscto ?? 0]));
+          const rawLiq = Number(money(row[col.totalLiquido ?? 0]));
+          let liq = rawLiq;
+          if ((liq <= 1 && mVal > 1) || (mVal > 0 && Math.abs(liq - (mVal - dVal)) > 5)) {
+            liq = Math.max(0, mVal - dVal);
+          }
+          return liq > 0 ? liq.toFixed(2) : (rawLiq > 0 ? rawLiq.toFixed(2) : "0.00");
+        })(),
       });
     }
 

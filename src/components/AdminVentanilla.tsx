@@ -37,6 +37,7 @@ import {
   RotateCcw,
   Save,
   Sliders,
+  ArrowUpDown,
 } from "lucide-react";
 
 const MESES_FECHA: Record<string, string> = {
@@ -84,6 +85,16 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
   const [activeHistorialFilterLabel, setActiveHistorialFilterLabel] = useState<string | null>(null);
   const [filterYear, setFilterYear] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
+  const [sortAsc, setSortAsc] = useState(true);
+
+  const sortedResults = useMemo(() => {
+    return [...results].sort((a, b) => {
+      const nameA = `${a.ap_paterno} ${a.ap_materno} ${a.nombres}`.trim();
+      const nameB = `${b.ap_paterno} ${b.ap_materno} ${b.nombres}`.trim();
+      const cmp = nameA.localeCompare(nameB, "es", { sensitivity: "base" });
+      return sortAsc ? cmp : -cmp;
+    });
+  }, [results, sortAsc]);
 
   const clearDisplayedResults = () => {
     setResults([]);
@@ -137,7 +148,13 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
       const data = await searchAdminBoletas(filters);
       setResults(data);
       if (data.length > 0) {
-        setSelectedBoleta(data[0]);
+        // Seleccionar por defecto el primero en orden alfabético
+        const sorted = [...data].sort((a, b) => {
+          const nameA = `${a.ap_paterno} ${a.ap_materno} ${a.nombres}`.trim();
+          const nameB = `${b.ap_paterno} ${b.ap_materno} ${b.nombres}`.trim();
+          return nameA.localeCompare(nameB, "es", { sensitivity: "base" });
+        });
+        setSelectedBoleta(sorted[0]);
       } else {
         setSelectedBoleta(null);
       }
@@ -190,7 +207,12 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
         }).then((data) => {
           setResults(data);
           if (data.length > 0) {
-            setSelectedBoleta(data[0]);
+            const sorted = [...data].sort((a, b) => {
+              const nameA = `${a.ap_paterno} ${a.ap_materno} ${a.nombres}`.trim();
+              const nameB = `${b.ap_paterno} ${b.ap_materno} ${b.nombres}`.trim();
+              return nameA.localeCompare(nameB, "es", { sensitivity: "base" });
+            });
+            setSelectedBoleta(sorted[0]);
           } else {
             setSelectedBoleta(null);
           }
@@ -207,6 +229,15 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
   // Inicializar formData al seleccionar una boleta
   useEffect(() => {
     if (selectedBoleta) {
+      const pVal = (v: any) => parseFloat(String(v ?? "0").replace(/,/g, "").trim()) || 0;
+      const m = pVal(selectedBoleta.monto_mensual);
+      const d = pVal(selectedBoleta.total_dscto);
+      let l = pVal(selectedBoleta.total_liquido);
+      if ((l <= 1 && m > 1) || (m > 0 && Math.abs(l - (m - d)) > 5)) {
+        l = Math.max(0, m - d);
+      }
+      const finalLiquido = l > 0 ? l.toFixed(2) : String(selectedBoleta.total_liquido || "0.00");
+
       setFormData({
         boleta_id: selectedBoleta.boleta_id,
         dni: selectedBoleta.dni,
@@ -233,7 +264,7 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
         otros_dsctos: selectedBoleta.otros_dsctos || "0.00",
         dscto_entidades: selectedBoleta.dscto_entidades || "0.00",
         dscto_judicial: selectedBoleta.dscto_judicial || "0.00",
-        total_liquido: selectedBoleta.total_liquido || "0.00",
+        total_liquido: finalLiquido,
       });
     } else {
       setFormData(null);
@@ -293,18 +324,21 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
 
   const handleAutoCalculate = () => {
     if (!formData) return;
-    const onp = parseFloat(formData.onp) || 0;
-    const prima = parseFloat(formData.prima) || 0;
-    const integra = parseFloat(formData.integra) || 0;
-    const profuturo = parseFloat(formData.profuturo) || 0;
-    const habitat = parseFloat(formData.habitat) || 0;
-    const otrosDsctos = parseFloat(formData.otros_dsctos) || 0;
-    const dsctoEntidades = parseFloat(formData.dscto_entidades) || 0;
-    const dsctoJudicial = parseFloat(formData.dscto_judicial) || 0;
+    const cleanNum = (v: string | number | undefined | null) =>
+      parseFloat(String(v || "0").replace(/,/g, "").trim()) || 0;
+
+    const onp = cleanNum(formData.onp);
+    const prima = cleanNum(formData.prima);
+    const integra = cleanNum(formData.integra);
+    const profuturo = cleanNum(formData.profuturo);
+    const habitat = cleanNum(formData.habitat);
+    const otrosDsctos = cleanNum(formData.otros_dsctos);
+    const dsctoEntidades = cleanNum(formData.dscto_entidades);
+    const dsctoJudicial = cleanNum(formData.dscto_judicial);
     const totalDscto = (
       onp + prima + integra + profuturo + habitat + otrosDsctos + dsctoEntidades + dsctoJudicial
     ).toFixed(2);
-    const monto = parseFloat(formData.monto_mensual) || 0;
+    const monto = cleanNum(formData.monto_mensual);
     const totalLiquido = Math.max(0, monto - parseFloat(totalDscto)).toFixed(2);
 
     setFormData((prev) =>
@@ -328,8 +362,8 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
   };
 
   const selectedBoletas = useMemo(
-    () => results.filter((item) => selectedIds.includes(item.boleta_id)),
-    [results, selectedIds]
+    () => sortedResults.filter((item) => selectedIds.includes(item.boleta_id)),
+    [sortedResults, selectedIds]
   );
 
   const getPrintableText = (item: BoletaHistoricaItem) =>
@@ -659,12 +693,20 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
           {/* Lista de Resultados (List-Group) */}
           <div className="space-y-2">
             <div className="bg-slate-200 text-slate-800 px-3 py-2 rounded-t text-xs font-bold border border-slate-300 flex items-center justify-between">
-              <span>Resultados ({results.length})</span>
-              <span className="text-[11px] text-slate-600 font-normal">Haga clic para ver</span>
+              <span>Resultados ({sortedResults.length})</span>
+              <button
+                type="button"
+                onClick={() => setSortAsc((prev) => !prev)}
+                title="Cambiar orden alfabético"
+                className="inline-flex items-center gap-1 rounded bg-white px-2 py-0.5 text-[11px] font-bold text-slate-700 shadow-sm border border-slate-300 hover:bg-slate-50 transition"
+              >
+                <ArrowUpDown className="h-3 w-3 text-blue-600" />
+                <span>{sortAsc ? "A-Z (Apellidos)" : "Z-A (Apellidos)"}</span>
+              </button>
             </div>
 
             <div className="bg-white border border-slate-300 rounded-b divide-y divide-slate-200 max-h-[600px] overflow-y-auto">
-              {results.map((item) => {
+              {sortedResults.map((item) => {
                 const isSelected = item.boleta_id === selectedBoleta?.boleta_id;
                 return (
                   <div
@@ -696,7 +738,16 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
                         {item.mes} {item.anio}
                       </span>
                       <span className="font-mono font-bold text-emerald-700">
-                        S/. {item.total_liquido}
+                        S/. {(() => {
+                          const pVal = (v: any) => parseFloat(String(v ?? "0").replace(/,/g, "").trim()) || 0;
+                          const m = pVal(item.monto_mensual);
+                          const d = pVal(item.total_dscto);
+                          let l = pVal(item.total_liquido);
+                          if ((l <= 1 && m > 1) || (m > 0 && Math.abs(l - (m - d)) > 5)) {
+                            l = Math.max(0, m - d);
+                          }
+                          return l > 0 ? l.toFixed(2) : String(item.total_liquido || "0.00");
+                        })()}
                       </span>
                     </div>
                     </button>

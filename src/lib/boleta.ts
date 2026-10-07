@@ -256,9 +256,15 @@ export function buildBoletaText(
         "------------------------------------------------------------------------"
     );
 
+    const parseNum = (val: string | number | undefined | null) => {
+        const cleaned = String(val ?? "0").replace(/,/g, "").trim();
+        const n = parseFloat(cleaned);
+        return isNaN(n) ? 0 : n;
+    };
+
     const formatMoney = (val: string | number | undefined | null) => {
-        const num = parseFloat(String(val ?? "0"));
-        return isNaN(num) ? "0.00" : num.toFixed(2);
+        const n = parseNum(val);
+        return n.toFixed(2);
     };
 
     lines.push(
@@ -272,10 +278,10 @@ export function buildBoletaText(
     } else {
         // AFP: mostrar cada fondo con valor propio en su línea
         const afpFunds: Array<{ label: string; val: number }> = [
-            { label: "AFP INTEGRA",   val: parseFloat(w.integra   || "0") || 0 },
-            { label: "AFP PROFUTURO", val: parseFloat(w.profuturo || "0") || 0 },
-            { label: "AFP HABITAT",   val: parseFloat(w.habitat   || "0") || 0 },
-            { label: "AFP PRIMA",     val: parseFloat(w.prima     || "0") || 0 },
+            { label: "AFP INTEGRA",   val: parseNum(w.integra) },
+            { label: "AFP PROFUTURO", val: parseNum(w.profuturo) },
+            { label: "AFP HABITAT",   val: parseNum(w.habitat) },
+            { label: "AFP PRIMA",     val: parseNum(w.prima) },
         ].filter(f => f.val > 0);
 
         if (afpFunds.length > 0) {
@@ -290,15 +296,15 @@ export function buildBoletaText(
 
 
     let addedLines = 0;
-    if (w.otrosDsctos && Number(w.otrosDsctos) > 0) {
+    if (parseNum(w.otrosDsctos) > 0) {
         lines.push(`-OTROS DSCTOS`.padEnd(29, " ") + ` S/.  ${formatMoney(w.otrosDsctos)}`);
         addedLines++;
     }
-    if (w.dsctoEntidades && Number(w.dsctoEntidades) > 0) {
+    if (parseNum(w.dsctoEntidades) > 0) {
         lines.push(`-DESCUENTO ENTIDADES`.padEnd(29, " ") + ` S/.  ${formatMoney(w.dsctoEntidades)}`);
         addedLines++;
     }
-    if (w.dsctoJudicial && Number(w.dsctoJudicial) > 0) {
+    if (parseNum(w.dsctoJudicial) > 0) {
         lines.push(`-DSCTO JUDICIAL`.padEnd(29, " ") + ` S/.  ${formatMoney(w.dsctoJudicial)}`);
         addedLines++;
     }
@@ -313,8 +319,15 @@ export function buildBoletaText(
         "------------------------------------------------------------------------"
     );
 
+    const montoNum = parseNum(w.montoMensual);
+    const dsctoNum = parseNum(w.totalDscto);
+    let liquidoNum = parseNum(w.totalLiquido);
+    if ((liquidoNum <= 1 && montoNum > 1) || (montoNum > 0 && Math.abs(liquidoNum - (montoNum - dsctoNum)) > 5)) {
+        liquidoNum = Math.max(0, montoNum - dsctoNum);
+    }
+
     lines.push(
-        `T-DSCTO S/.${formatMoney(w.totalDscto)}   T-LIQUI S/.  ${formatMoney(w.totalLiquido)}`
+        `T-DSCTO S/.${formatMoney(w.totalDscto)}   T-LIQUI S/.  ${liquidoNum.toFixed(2)}`
     );
 
     lines.push("Mensajes :");

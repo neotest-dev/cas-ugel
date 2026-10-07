@@ -51,6 +51,14 @@ export interface BoletaHistoricaItem {
 }
 
 export function boletaItemToWorker(item: BoletaHistoricaItem): Worker {
+  const parseVal = (v: any) => parseFloat(String(v ?? "0").replace(/,/g, "").trim()) || 0;
+  const monto = parseVal(item.monto_mensual);
+  const dscto = parseVal(item.total_dscto);
+  let liqui = parseVal(item.total_liquido);
+  if ((liqui <= 1 && monto > 1) || (monto > 0 && Math.abs(liqui - (monto - dscto)) > 5)) {
+    liqui = Math.max(0, monto - dscto);
+  }
+
   return {
     n: item.n || "1",
     dni: item.dni,
@@ -81,7 +89,7 @@ export function boletaItemToWorker(item: BoletaHistoricaItem): Worker {
     otrosDsctos: String(item.otros_dsctos ?? "0.00"),
     dsctoEntidades: String(item.dscto_entidades ?? "0.00"),
     dsctoJudicial: String(item.dscto_judicial ?? "0.00"),
-    totalLiquido: String(item.total_liquido ?? "0.00"),
+    totalLiquido: liqui > 0 ? liqui.toFixed(2) : String(item.total_liquido ?? "0.00"),
   };
 }
 
@@ -426,6 +434,20 @@ export async function deleteCargaPlanilla(id: string): Promise<{ ok: boolean; er
   return { ok: true };
 }
 
+export async function deleteCargasPlanilla(ids: string[]): Promise<{ ok: boolean; error?: string }> {
+  if (!ids.length) return { ok: true };
+  const { error } = await supabase
+    .from("cargas_planilla")
+    .delete()
+    .in("id", ids);
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true };
+}
+
 export interface AdminBoletaSearchFilters {
   searchTerm?: string;
   categoriaId?: string;
@@ -705,7 +727,11 @@ export async function searchAdminBoletas(
     if (scoreDiff) return scoreDiff;
     const periodA = `${a.anio}-${MESES_NUMERO[a.mes.toUpperCase()] ?? "00"}`;
     const periodB = `${b.anio}-${MESES_NUMERO[b.mes.toUpperCase()] ?? "00"}`;
-    return periodB.localeCompare(periodA);
+    const periodDiff = periodB.localeCompare(periodA);
+    if (periodDiff) return periodDiff;
+    const nameA = `${a.ap_paterno} ${a.ap_materno} ${a.nombres}`.trim();
+    const nameB = `${b.ap_paterno} ${b.ap_materno} ${b.nombres}`.trim();
+    return nameA.localeCompare(nameB, "es", { sensitivity: "base" });
   });
 }
 
