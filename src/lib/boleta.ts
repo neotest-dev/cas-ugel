@@ -113,14 +113,26 @@ export function buildBoletaText(
     const apellidos =
         `${w.apPaterno} ${w.apMaterno}`.trim();
 
-    const descuentoPension =
-        w.descuentoPension ||
-        w.onp ||
-        w.prima ||
-        w.integra ||
-        w.profuturo ||
-        w.habitat ||
-        "0.00";
+    // Para AFP: suma integra + profuturo + habitat + prima (el que aplique)
+    // Para ONP: usa el campo onp directamente
+    // Se usa parseFloat para evitar el bug de "0.00" siendo string truthy con ||
+    let descuentoPension: string;
+    if (isONP) {
+        const v = parseFloat(w.onp || "0") || parseFloat(w.descuentoPension || "0");
+        descuentoPension = v > 0 ? v.toFixed(2) : "0.00";
+    } else {
+        const afpSum =
+            (parseFloat(w.integra || "0") || 0) +
+            (parseFloat(w.profuturo || "0") || 0) +
+            (parseFloat(w.habitat || "0") || 0) +
+            (parseFloat(w.prima || "0") || 0);
+        if (afpSum > 0) {
+            descuentoPension = afpSum.toFixed(2);
+        } else {
+            const fallback = parseFloat(w.descuentoPension || "0") || parseFloat(w.onp || "0");
+            descuentoPension = fallback > 0 ? fallback.toFixed(2) : "0.00";
+        }
+    }
 
     // FUNCION PARA ALINEAR
     const row2 = (
@@ -244,27 +256,50 @@ export function buildBoletaText(
         "------------------------------------------------------------------------"
     );
 
+    const formatMoney = (val: string | number | undefined | null) => {
+        const num = parseFloat(String(val ?? "0"));
+        return isNaN(num) ? "0.00" : num.toFixed(2);
+    };
+
     lines.push(
-        `PAGO TOTAL MENSUAL            S/.  ${w.montoMensual}`
+        `PAGO TOTAL MENSUAL            S/.  ${formatMoney(w.montoMensual)}`
     );
 
-    const displayPensionSystemName = isONP ? w.sistemaPensionario : "AFP";
+    if (isONP) {
+        // ONP: mostrar en una sola línea con el nombre del sistema
+        const label = w.sistemaPensionario || "ONP";
+        lines.push(`-${label.padEnd(28, " ")} S/.  ${formatMoney(descuentoPension)}`);
+    } else {
+        // AFP: mostrar cada fondo con valor propio en su línea
+        const afpFunds: Array<{ label: string; val: number }> = [
+            { label: "AFP INTEGRA",   val: parseFloat(w.integra   || "0") || 0 },
+            { label: "AFP PROFUTURO", val: parseFloat(w.profuturo || "0") || 0 },
+            { label: "AFP HABITAT",   val: parseFloat(w.habitat   || "0") || 0 },
+            { label: "AFP PRIMA",     val: parseFloat(w.prima     || "0") || 0 },
+        ].filter(f => f.val > 0);
 
-    lines.push(
-        `-${displayPensionSystemName.padEnd(28, " ")} S/.  ${descuentoPension}`
-    );
+        if (afpFunds.length > 0) {
+            for (const fund of afpFunds) {
+                lines.push(`-${fund.label.padEnd(28, " ")} S/.  ${fund.val.toFixed(2)}`);
+            }
+        } else {
+            // Fallback si no se detectó el fondo específico
+            lines.push(`-AFP                          S/.  ${formatMoney(descuentoPension)}`);
+        }
+    }
+
 
     let addedLines = 0;
     if (w.otrosDsctos && Number(w.otrosDsctos) > 0) {
-        lines.push(`-OTROS DSCTOS`.padEnd(29, " ") + ` S/.  ${w.otrosDsctos}`);
+        lines.push(`-OTROS DSCTOS`.padEnd(29, " ") + ` S/.  ${formatMoney(w.otrosDsctos)}`);
         addedLines++;
     }
     if (w.dsctoEntidades && Number(w.dsctoEntidades) > 0) {
-        lines.push(`-DESCUENTO ENTIDADES`.padEnd(29, " ") + ` S/.  ${w.dsctoEntidades}`);
+        lines.push(`-DESCUENTO ENTIDADES`.padEnd(29, " ") + ` S/.  ${formatMoney(w.dsctoEntidades)}`);
         addedLines++;
     }
     if (w.dsctoJudicial && Number(w.dsctoJudicial) > 0) {
-        lines.push(`-DSCTO JUDICIAL`.padEnd(29, " ") + ` S/.  ${w.dsctoJudicial}`);
+        lines.push(`-DSCTO JUDICIAL`.padEnd(29, " ") + ` S/.  ${formatMoney(w.dsctoJudicial)}`);
         addedLines++;
     }
 
@@ -279,7 +314,7 @@ export function buildBoletaText(
     );
 
     lines.push(
-        `T-DSCTO S/.${w.totalDscto}   T-LIQUI S/.  ${w.totalLiquido}`
+        `T-DSCTO S/.${formatMoney(w.totalDscto)}   T-LIQUI S/.  ${formatMoney(w.totalLiquido)}`
     );
 
     lines.push("Mensajes :");

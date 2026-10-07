@@ -527,31 +527,71 @@ interface AdminBoletaDbRow {
   } | null;
 }
 
+/**
+ * Finds worker DNIs matching every word, returning a relevance score per DNI.
+ * Preferred path: SQL function `buscar_trabajadores` (accent-insensitive and ranked).
+ * Fallback when the function is not installed: plain ILIKE without ranking.
+ */
+async function findWorkersByTokens(tokens: string[]): Promise<Map<string, number> | null> {
+  const pageSize = 1000;
+  const scores = new Map<string, number>();
+
+  let rpcFailed = false;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .rpc("buscar_trabajadores", { p_term: tokens.join(" ") })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      rpcFailed = true;
+      break;
+    }
+    for (const row of (data ?? []) as Array<{ dni: string; score: number }>) {
+      scores.set(row.dni, row.score);
+    }
+    if (!data || data.length < pageSize) break;
+  }
+  if (!rpcFailed) return scores;
+  scores.clear();
+
+  for (let from = 0; ; from += pageSize) {
+    let query = supabase.from("trabajadores").select("dni");
+    for (const token of tokens) {
+      query = query.or(
+        `dni.ilike.%${token}%,ap_paterno.ilike.%${token}%,ap_materno.ilike.%${token}%,nombres.ilike.%${token}%`
+      );
+    }
+    const { data, error } = await query.range(from, from + pageSize - 1);
+    if (error) {
+      console.error("Error al buscar trabajadores:", error);
+      return null;
+    }
+    for (const row of data ?? []) scores.set(row.dni, 0);
+    if (!data || data.length < pageSize) break;
+  }
+  return scores;
+}
+
 export async function searchAdminBoletas(
   filters: AdminBoletaSearchFilters
 ): Promise<BoletaHistoricaItem[]> {
   const term = filters.searchTerm?.trim() ?? "";
   if (!term && !filters.categoriaId && !filters.desde && !filters.hasta) return [];
 
+  // Each word must match at least one of: DNI, paternal surname, maternal surname, names.
+  // Words may appear in any order (e.g. "SARITA FLORIAN" finds "SARITA JUDITH DIAZ FLORIAN").
+  const tokens = term
+    .split(/\s+/)
+    .map((token) => token.replace(/[,()%*\\"'_]/g, ""))
+    .filter(Boolean);
+  if (term && !tokens.length) return [];
+
   let dnis: string[] | null = null;
-  if (term) {
-    const workers: Array<{ dni: string }> = [];
-    const pageSize = 1000;
-    for (let from = 0; ; from += pageSize) {
-      const { data, error } = await supabase
-        .from("trabajadores")
-        .select("dni")
-        .or(`dni.ilike.%${term}%,ap_paterno.ilike.%${term}%,ap_materno.ilike.%${term}%,nombres.ilike.%${term}%`)
-        .range(from, from + pageSize - 1);
-      if (error) {
-        console.error("Error al buscar trabajadores:", error);
-        return [];
-      }
-      workers.push(...(data ?? []));
-      if (!data || data.length < pageSize) break;
-    }
-    dnis = [...new Set(workers.map((worker) => worker.dni))];
-    if (!dnis.length) return [];
+  let scoreByDni = new Map<string, number>();
+  if (tokens.length) {
+    const matches = await findWorkersByTokens(tokens);
+    if (!matches || !matches.size) return [];
+    scoreByDni = matches;
+    dnis = [...matches.keys()];
   }
 
   let cargaIds: string[] | null = null;
@@ -661,75 +701,35 @@ export async function searchAdminBoletas(
     ),
     boleta_texto_personalizado: item.boleta_texto_personalizado || null,
   })).sort((a, b) => {
+    const scoreDiff = (scoreByDni.get(b.dni) ?? 0) - (scoreByDni.get(a.dni) ?? 0);
+    if (scoreDiff) return scoreDiff;
     const periodA = `${a.anio}-${MESES_NUMERO[a.mes.toUpperCase()] ?? "00"}`;
     const periodB = `${b.anio}-${MESES_NUMERO[b.mes.toUpperCase()] ?? "00"}`;
     return periodB.localeCompare(periodA);
   });
 }
 
-export async function consultarBoletasTrabajador(
-  dni: string,
-  claveOCuenta: string
-): Promise<{ ok: boolean; boletas?: BoletaHistoricaItem[]; error?: string }> {
-  try {
-    const { data, error } = await supabase.rpc("consultar_boletas_trabajador", {
-      p_dni: dni.trim(),
-      p_clave_o_cuenta: claveOCuenta.trim(),
-    });
+/**
+ * Saves the first known version of a boleta so it can be restored later.
+ * Uses ignoreDuplicates, so only the very first snapshot is kept.
+ */
+export async function saveBoletaOriginal(item: BoletaHistoricaItem): Promise<void> {
+  const { error } = await supabase
+    .from("boletas_originales")
+    .upsert({ boleta_id: item.boleta_id, datos: item }, { onConflict: "boleta_id", ignoreDuplicates: true });
+  if (error) console.warn("No se pudo guardar el respaldo original de la boleta:", error.message);
+}
 
-    if (error) {
-      return { ok: false, error: error.message };
-    }
-
-    if (!data || data.length === 0) {
-      return {
-        ok: false,
-        error: "No se encontraron boletas con esos datos. Verifica tu DNI y que la clave o los últimos 4 dígitos de tu cuenta bancaria sean correctos.",
-      };
-    }
-
-    const boletas: BoletaHistoricaItem[] = data.map((item) => ({
-      boleta_id: item.boleta_id,
-      n: item.n,
-      dni: item.doc_identidad,
-      ap_paterno: item.ap_paterno,
-      ap_materno: item.ap_materno,
-      nombres: item.nombres,
-      fecha_nac: item.fecha_nac,
-      cargo: item.cargo,
-      cod_essalud: item.cod_essalud,
-      cuenta_banco: item.cuenta_banco,
-      leyenda_rd: item.leyenda_rd,
-      leyenda_mensual: item.leyenda_mensual,
-      sistema_pensionario: item.sistema_pensionario,
-      cussp: item.cussp,
-      fecha_afiliacion: item.fecha_afiliacion,
-      fecha_devengue: item.fecha_devengue,
-      monto_mensual: String(item.monto_mensual ?? "0.00"),
-      descuento_pension: String(item.descuento_pension ?? "0.00"),
-      onp: String(item.onp ?? "0.00"),
-      prima: String(item.prima ?? "0.00"),
-      integra: String(item.integra ?? "0.00"),
-      profuturo: String(item.profuturo ?? "0.00"),
-      habitat: String(item.habitat ?? "0.00"),
-      aporte_obligatorio: String(item.aporte_obligatorio ?? "0.00"),
-      comision: String(item.comision ?? "0.00"),
-      prima_seguro: String(item.prima_seguro ?? "0.00"),
-      total_dscto: String(item.total_dscto ?? "0.00"),
-      otros_dsctos: String(item.otros_dsctos ?? "0.00"),
-      dscto_entidades: String(item.dscto_entidades ?? "0.00"),
-      dscto_judicial: String(item.dscto_judicial ?? "0.00"),
-      total_liquido: String(item.total_liquido ?? "0.00"),
-      mes: item.mes,
-      anio: item.anio,
-      categoria_label: item.categoria_label,
-      boleta_texto_personalizado: item.boleta_texto_personalizado || null,
-    }));
-
-    return { ok: true, boletas };
-  } catch (err) {
-    return { ok: false, error: "Error de conexión al consultar las boletas." };
-  }
+export async function fetchBoletaOriginal(
+  boletaId: number
+): Promise<{ ok: boolean; item?: BoletaHistoricaItem | null; error?: string }> {
+  const { data, error } = await supabase
+    .from("boletas_originales")
+    .select("datos")
+    .eq("boleta_id", boletaId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, item: (data?.datos as BoletaHistoricaItem | undefined) ?? null };
 }
 
 export async function guardarBoletaTexto(
@@ -774,35 +774,6 @@ export async function guardarBoletaTexto(
   }
 }
 
-export async function cambiarClaveTrabajador(
-  dni: string,
-  ultimos4Cuenta: string,
-  nuevaClave: string
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const { data, error } = await supabase.rpc("crear_o_cambiar_clave_trabajador", {
-      p_dni: dni.trim(),
-      p_ultimos4_cuenta: ultimos4Cuenta.trim(),
-      p_nueva_clave: nuevaClave.trim(),
-    });
-
-    if (error) {
-      return { ok: false, error: error.message };
-    }
-
-    if (!data) {
-      return {
-        ok: false,
-        error: "Los últimos 4 dígitos de la cuenta bancaria no coinciden con los registrados en la UGEL para este DNI.",
-      };
-    }
-
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: "Error de red al actualizar la clave." };
-  }
-}
-
 export interface BoletaFormData {
   boleta_id: number;
   dni: string;
@@ -826,6 +797,9 @@ export interface BoletaFormData {
   profuturo: string;
   habitat: string;
   total_dscto: string;
+  otros_dsctos: string;
+  dscto_entidades: string;
+  dscto_judicial: string;
   total_liquido: string;
 }
 
@@ -857,6 +831,9 @@ export async function actualizarDatosBoletaYTrabajador(
       p_profuturo: Number(data.profuturo) || 0,
       p_habitat: Number(data.habitat) || 0,
       p_total_dscto: Number(data.total_dscto) || 0,
+      p_otros_dsctos: Number(data.otros_dsctos) || 0,
+      p_dscto_entidades: Number(data.dscto_entidades) || 0,
+      p_dscto_judicial: Number(data.dscto_judicial) || 0,
       p_total_liquido: Number(data.total_liquido) || 0,
     });
 
@@ -903,6 +880,9 @@ export async function actualizarDatosBoletaYTrabajador(
         profuturo: Number(data.profuturo) || 0,
         habitat: Number(data.habitat) || 0,
         total_dscto: Number(data.total_dscto) || 0,
+        otros_dsctos: Number(data.otros_dsctos) || 0,
+        dscto_entidades: Number(data.dscto_entidades) || 0,
+        dscto_judicial: Number(data.dscto_judicial) || 0,
         total_liquido: Number(data.total_liquido) || 0,
         boleta_texto_personalizado: null,
       })

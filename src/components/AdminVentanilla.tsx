@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -22,23 +23,19 @@ import { buildBoletaText, CATEGORIAS_PLANILLA, Worker } from "@/lib/boleta";
 import { exportBoletaToPDF, exportBoletasToPDF } from "@/lib/pdfExport";
 import { PrintBoletaPortal } from "./PrintBoletaPortal";
 import { BoletaFormEditor } from "./BoletaFormEditor";
-import { TutorialDialog } from "./TutorialDialog";
 import {
   Search,
   Printer,
   Download,
-  Building,
   Calendar,
   X,
   Loader2,
-  User,
   Users,
-  FileText,
+  Pencil,
   ZoomIn,
   ZoomOut,
   RotateCcw,
   Save,
-  CheckCircle2,
   Sliders,
 } from "lucide-react";
 
@@ -48,6 +45,13 @@ const MESES_FECHA: Record<string, string> = {
   NOVIEMBRE: "11", DICIEMBRE: "12",
 };
 
+const MONTH_OPTIONS: Array<[string, string]> = [
+  ["01", "Enero"], ["02", "Febrero"], ["03", "Marzo"], ["04", "Abril"], ["05", "Mayo"], ["06", "Junio"],
+  ["07", "Julio"], ["08", "Agosto"], ["09", "Septiembre"], ["10", "Octubre"], ["11", "Noviembre"], ["12", "Diciembre"],
+];
+
+const YEAR_OPTIONS = Array.from({ length: 6 }, (_, index) => String(new Date().getFullYear() - index));
+
 export interface VentanillaInitialFilters {
   categoriaId?: string;
   mes?: string;
@@ -56,9 +60,10 @@ export interface VentanillaInitialFilters {
 
 interface AdminVentanillaProps {
   initialFilters?: VentanillaInitialFilters | null;
+  hideSearch?: boolean;
 }
 
-export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
+export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVentanillaProps = {}) {
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -71,18 +76,43 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
   const [hasSearched, setHasSearched] = useState(false);
 
   // Modo de visualización: "form" (cajas de texto por campo) o "preview" (formato Courier A4)
-  const [subTab, setSubTab] = useState<"form" | "preview">("form");
+  const [subTab, setSubTab] = useState<"form" | "preview">("preview");
   const [formData, setFormData] = useState<BoletaFormData | null>(null);
   const [zoom, setZoom] = useState(100);
   const [savingDb, setSavingDb] = useState(false);
   const [editedBoletaText, setEditedBoletaText] = useState("");
   const [activeHistorialFilterLabel, setActiveHistorialFilterLabel] = useState<string | null>(null);
+  const [filterYear, setFilterYear] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
 
   const clearDisplayedResults = () => {
     setResults([]);
     setSelectedBoleta(null);
     setSelectedIds([]);
     setHasSearched(false);
+  };
+
+  // Year/month selects -> date range used by the search service
+  const applyPeriod = (year: string, month: string) => {
+    setFilterYear(year);
+    setFilterMonth(month);
+    if (!year) {
+      setDateFrom("");
+      setDateTo("");
+    } else if (month) {
+      const lastDay = new Date(Number(year), Number(month), 0).getDate();
+      setDateFrom(`${year}-${month}-01`);
+      setDateTo(`${year}-${month}-${String(lastDay).padStart(2, "0")}`);
+    } else {
+      setDateFrom(`${year}-01-01`);
+      setDateTo(`${year}-12-31`);
+    }
+    clearDisplayedResults();
+  };
+
+  const resetFilters = () => {
+    setCategoryId("");
+    applyPeriod("", "");
   };
 
   const handleSearch = async (e?: React.FormEvent) => {
@@ -200,6 +230,9 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
         profuturo: selectedBoleta.profuturo || "0.00",
         habitat: selectedBoleta.habitat || "0.00",
         total_dscto: selectedBoleta.total_dscto || "0.00",
+        otros_dsctos: selectedBoleta.otros_dsctos || "0.00",
+        dscto_entidades: selectedBoleta.dscto_entidades || "0.00",
+        dscto_judicial: selectedBoleta.dscto_judicial || "0.00",
         total_liquido: selectedBoleta.total_liquido || "0.00",
       });
     } else {
@@ -237,9 +270,9 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
       comision: "0.00",
       primaSeguro: "0.00",
       totalDscto: formData.total_dscto,
-      otrosDsctos: "0.00",
-      dsctoEntidades: "0.00",
-      dsctoJudicial: "0.00",
+      otrosDsctos: formData.otros_dsctos || "0.00",
+      dsctoEntidades: formData.dscto_entidades || "0.00",
+      dsctoJudicial: formData.dscto_judicial || "0.00",
       totalLiquido: formData.total_liquido,
     };
   }, [formData, selectedBoleta]);
@@ -265,7 +298,12 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
     const integra = parseFloat(formData.integra) || 0;
     const profuturo = parseFloat(formData.profuturo) || 0;
     const habitat = parseFloat(formData.habitat) || 0;
-    const totalDscto = (onp + prima + integra + profuturo + habitat).toFixed(2);
+    const otrosDsctos = parseFloat(formData.otros_dsctos) || 0;
+    const dsctoEntidades = parseFloat(formData.dscto_entidades) || 0;
+    const dsctoJudicial = parseFloat(formData.dscto_judicial) || 0;
+    const totalDscto = (
+      onp + prima + integra + profuturo + habitat + otrosDsctos + dsctoEntidades + dsctoJudicial
+    ).toFixed(2);
     const monto = parseFloat(formData.monto_mensual) || 0;
     const totalLiquido = Math.max(0, monto - parseFloat(totalDscto)).toFixed(2);
 
@@ -353,6 +391,9 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
       profuturo: selectedBoleta.profuturo || "0.00",
       habitat: selectedBoleta.habitat || "0.00",
       total_dscto: selectedBoleta.total_dscto || "0.00",
+      otros_dsctos: selectedBoleta.otros_dsctos || "0.00",
+      dscto_entidades: selectedBoleta.dscto_entidades || "0.00",
+      dscto_judicial: selectedBoleta.dscto_judicial || "0.00",
       total_liquido: selectedBoleta.total_liquido || "0.00",
     });
     // The preview textarea is independently editable, so restoring fields alone
@@ -409,6 +450,9 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
         profuturo: formData.profuturo,
         habitat: formData.habitat,
         total_dscto: formData.total_dscto,
+        otros_dsctos: formData.otros_dsctos,
+        dscto_entidades: formData.dscto_entidades,
+        dscto_judicial: formData.dscto_judicial,
         total_liquido: formData.total_liquido,
         boleta_texto_personalizado: null,
       };
@@ -427,113 +471,75 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
     }
   };
 
+
   return (
     <div className="space-y-4">
-      {/* Buscador de Ventanilla (Panel Estilo Bootstrap) */}
-      <div className="bg-white border border-slate-300 rounded shadow-sm overflow-hidden">
-        <div className="bg-[#0b223d] text-white px-4 py-2.5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-amber-400" />
-            <h3 className="text-xs font-bold uppercase tracking-wider">
-              Consultar · Búsqueda General de Trabajadores
-            </h3>
-          </div>
-          <span className="text-[11px] text-slate-300">
-            Sin clave requerida
-          </span>
-          <TutorialDialog audience="admin" />
-        </div>
-
-        <div className="p-4 bg-slate-50 border-b border-slate-200">
-          {activeHistorialFilterLabel && (
-            <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-900 shadow-xs">
-              <div className="flex items-center gap-2">
-                <Sliders className="h-4 w-4 text-blue-600 shrink-0" />
-                <span>
-                  Filtro aplicado desde el Historial:{" "}
-                  <strong className="text-blue-900 font-bold">{activeHistorialFilterLabel}</strong>
-                  {results.length > 0 && (
-                    <span className="ml-1.5 bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded text-[11px] font-bold">
-                      {results.length} boletas encontradas
-                    </span>
-                  )}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveHistorialFilterLabel(null);
-                  setCategoryId("");
-                  setDateFrom("");
-                  setDateTo("");
-                  setQuery("");
-                  clearDisplayedResults();
-                }}
-                className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline shrink-0 self-end sm:self-auto"
-              >
-                Limpiar filtro / Ver todo
-              </button>
+      {/* Buscador: texto libre + filtros opcionales (CAS, año, mes) */}
+      {!hideSearch && (
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+            <div>
+              <h3 className="text-sm font-bold text-[#0b223d]">Buscar trabajador</h3>
+              <p className="text-xs text-slate-500">Escribe nombres, apellidos o DNI, en cualquier orden.</p>
             </div>
-          )}
+          </div>
 
-          <form onSubmit={handleSearch} className="space-y-3">
-            <div className="flex flex-col sm:flex-row items-center gap-2">
-            <div className="relative flex-1 w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <Input
-                type="text"
-                placeholder="Escriba DNI, Apellidos o Nombres del trabajador..."
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  clearDisplayedResults();
-                }}
-                className="h-10 rounded border-slate-300 pl-9 pr-8 text-sm bg-white focus:border-blue-600"
-              />
-              {(query || categoryId || dateFrom || dateTo) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveHistorialFilterLabel(null);
-                    setQuery("");
-                    setCategoryId("");
-                    setDateFrom("");
-                    setDateTo("");
+          <form onSubmit={handleSearch} className="space-y-4 p-4">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  type="text"
+                  autoFocus
+                  placeholder="Ej: Sarita Florian, Judith Díaz o 41234567"
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
                     clearDisplayedResults();
                   }}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-
-            <Button
-              type="submit"
+                  className="h-11 bg-white pl-9 pr-10 text-base sm:text-sm"
+                  aria-label="Buscar por nombres, apellidos o DNI"
+                />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => { setQuery(""); clearDisplayedResults(); }}
+                    aria-label="Borrar búsqueda"
+                    className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              <Button
+                type="submit"
                 disabled={loading || (!query.trim() && !categoryId && !dateFrom && !dateTo)}
-              className="h-10 px-5 rounded bg-[#0d6efd] hover:bg-[#0b5ed7] font-bold text-white text-xs shadow-sm shrink-0 w-full sm:w-auto"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Buscando...
-                </>
-              ) : (
-                <>
-                  <Search className="mr-1.5 h-3.5 w-3.5" /> Buscar en Base de Datos
-                </>
-              )}
-            </Button>
+                className="h-11 w-full bg-[#0d6efd] px-6 text-sm font-bold text-white hover:bg-[#0b5ed7] sm:w-auto"
+              >
+                {loading ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Buscando...</>
+                ) : (
+                  <><Search className="mr-2 h-4 w-4" /> Buscar</>
+                )}
+              </Button>
             </div>
 
-            <div className="rounded border border-slate-200 bg-white p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-700">
-                <Sliders className="h-3.5 w-3.5 text-blue-700" /> Filtros avanzados
+            <div className="rounded-md bg-slate-50 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                  <Sliders className="h-3.5 w-3.5 text-blue-600" /> Filtrar por (opcional)
+                </p>
+                {(categoryId || filterYear) && (
+                  <button type="button" onClick={resetFilters} className="text-xs font-semibold text-blue-700 hover:underline">
+                    Quitar filtros
+                  </button>
+                )}
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="space-y-1">
-                  <Label className="text-[11px] font-semibold text-slate-600">Tipo de CAS</Label>
+                  <Label className="text-xs text-slate-600">Tipo de CAS</Label>
                   <Select value={categoryId || "all"} onValueChange={(value) => { setCategoryId(value === "all" ? "" : value); clearDisplayedResults(); }}>
-                    <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Todos los CAS" /></SelectTrigger>
+                    <SelectTrigger className="h-10 bg-white text-sm"><SelectValue placeholder="Todos" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Todos los CAS</SelectItem>
                       {CATEGORIAS_PLANILLA.map((category) => (
@@ -543,29 +549,77 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="admin-date-from" className="text-[11px] font-semibold text-slate-600">Desde</Label>
-                  <Input id="admin-date-from" type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); clearDisplayedResults(); }} className="h-9 text-xs" />
+                  <Label className="text-xs text-slate-600">Año</Label>
+                  <Select value={filterYear || "all"} onValueChange={(value) => applyPeriod(value === "all" ? "" : value, value === "all" ? "" : filterMonth)}>
+                    <SelectTrigger className="h-10 bg-white text-sm"><SelectValue placeholder="Todos" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los años</SelectItem>
+                      {YEAR_OPTIONS.map((year) => (
+                        <SelectItem key={year} value={year}>{year}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="admin-date-to" className="text-[11px] font-semibold text-slate-600">Hasta</Label>
-                  <Input id="admin-date-to" type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); clearDisplayedResults(); }} className="h-9 text-xs" />
+                  <Label className="text-xs text-slate-600">Mes</Label>
+                  <Select disabled={!filterYear} value={filterMonth || "all"} onValueChange={(value) => applyPeriod(filterYear, value === "all" ? "" : value)}>
+                    <SelectTrigger className="h-10 bg-white text-sm"><SelectValue placeholder={filterYear ? "Todo el año" : "Elige un año"} /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todo el año</SelectItem>
+                      {MONTH_OPTIONS.map(([value, label]) => (
+                        <SelectItem key={value} value={value}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-              {(categoryId || dateFrom || dateTo) && (
-                <button
-                  type="button"
-                  onClick={() => { setCategoryId(""); setDateFrom(""); setDateTo(""); clearDisplayedResults(); }}
-                  className="mt-2 text-[11px] font-semibold text-blue-700 hover:underline"
-                >Limpiar filtros</button>
-              )}
             </div>
           </form>
-
-          <p className="mt-1.5 text-[11px] text-slate-500">
-            * Busca por persona, tipo de CAS o periodo. Puedes combinar los filtros; el rango incluye los meses seleccionados.
-          </p>
         </div>
-      </div>
+      )}
+
+      {/* Skeletons mientras carga */}
+      {loading && (
+        <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+          {/* Lista skeleton */}
+          <div className="space-y-2">
+            <Skeleton className="h-9 w-full rounded" />
+            <div className="divide-y divide-slate-100 rounded border border-slate-200 bg-white">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex flex-col gap-2 p-3">
+                  <Skeleton className="h-3.5 w-3/4 rounded" />
+                  <Skeleton className="h-3 w-1/3 rounded" />
+                  <div className="mt-1 flex items-center justify-between">
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                    <Skeleton className="h-4 w-14 rounded" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Boleta skeleton */}
+          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-200 p-4">
+              <div className="space-y-2">
+                <Skeleton className="h-6 w-28 rounded-md" />
+                <Skeleton className="h-5 w-48 rounded" />
+                <Skeleton className="h-3.5 w-32 rounded" />
+              </div>
+              <Skeleton className="h-9 w-44 rounded-lg" />
+            </div>
+            <div className="space-y-3 p-6">
+              {Array.from({ length: 20 }).map((_, i) => (
+                <Skeleton
+                  key={i}
+                  className="h-3 rounded"
+                  style={{ width: `${55 + Math.sin(i * 1.7) * 35}%` }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mensaje de Sin Resultados */}
       {hasSearched && results.length === 0 && !loading && (
@@ -575,13 +629,13 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
             No se encontraron registros coincidentes
           </h4>
           <p className="text-xs text-slate-500 mt-1">
-            Verifique la búsqueda o pruebe con otro tipo de CAS o rango de fechas.
+            Revisa la ortografía o prueba con menos palabras o sin filtros.
           </p>
         </div>
       )}
 
       {/* Resultados y Previsualización */}
-      {results.length > 0 && (
+      {results.length > 0 && !loading && (
         <div className="space-y-3">
           <div className="flex flex-col gap-2 rounded border border-slate-300 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3 text-xs">
@@ -637,8 +691,8 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
                       </span>
                     </div>
 
-                    <div className="mt-2 flex items-center justify-between text-[11px] pt-1.5 border-t border-slate-100">
-                      <span className="text-slate-600 font-medium">
+                    <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-1.5 text-[11px]">
+                      <span className="rounded bg-[#0b223d] px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wide text-white">
                         {item.mes} {item.anio}
                       </span>
                       <span className="font-mono font-bold text-emerald-700">
@@ -652,188 +706,129 @@ export function AdminVentanilla({ initialFilters }: AdminVentanillaProps = {}) {
             </div>
           </div>
 
-          {/* Panel de Visualización e Impresión */}
+          {/* Boleta seleccionada: Imprimir (por defecto) o Editar datos */}
           {selectedBoleta && (
-            <div className="space-y-3">
-              <div className="bg-white border border-slate-300 rounded p-3 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h4 className="font-bold text-sm text-slate-900">
+            <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-md bg-[#0b223d] px-2.5 py-1 text-xs font-extrabold uppercase tracking-wide text-white">
+                    <Calendar className="h-3.5 w-3.5 text-amber-400" />
+                    {selectedBoleta.mes} {selectedBoleta.anio}
+                  </div>
+                  <h4 className="truncate text-base font-bold text-slate-900">
                     {selectedBoleta.nombres} {selectedBoleta.ap_paterno} {selectedBoleta.ap_materno}
                   </h4>
-                  <p className="text-xs text-slate-600">
-                    DNI: <strong>{selectedBoleta.dni}</strong> · Periodo: <strong>{selectedBoleta.mes} {selectedBoleta.anio}</strong> ({selectedBoleta.categoria_label})
+                  <p className="text-xs text-slate-500">
+                    DNI {selectedBoleta.dni} · {selectedBoleta.categoria_label}
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    onClick={handleSaveToDatabase}
-                    disabled={savingDb}
-                    className="h-9 rounded bg-[#198754] hover:bg-[#157347] text-white text-xs font-semibold shadow-sm"
-                    title="Guardar de forma permanente los cambios en la Base de Datos para esta boleta"
-                  >
-                    {savingDb ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Guardando...
-                      </>
-                    ) : (
-                      <>
-                        <Save className="h-3.5 w-3.5 mr-1" /> Guardar en BD
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handlePrint}
-                    className="h-9 rounded bg-[#0d6efd] hover:bg-[#0b5ed7] text-white text-xs font-semibold shadow-sm"
-                  >
-                    <Printer className="h-3.5 w-3.5 mr-1" /> Imprimir Boleta
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handlePDF}
-                    className="h-9 rounded bg-[#dc3545] hover:bg-[#bb2d3b] text-white text-xs font-semibold shadow-sm"
-                  >
-                    <Download className="h-3.5 w-3.5 mr-1" /> Descargar PDF
-                  </Button>
+                <div role="tablist" aria-label="Modo de la boleta" className="inline-flex shrink-0 rounded-lg bg-slate-100 p-1">
+                  {([
+                    { id: "preview", label: "Imprimir", icon: Printer },
+                    { id: "form", label: "Editar datos", icon: Pencil },
+                  ] as const).map(({ id, label, icon: Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={subTab === id}
+                      onClick={() => setSubTab(id)}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-bold transition ${
+                        subTab === id ? "bg-white text-[#0b223d] shadow-sm" : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Barra de Pestañas de Vista: Formulario vs Vista Previa */}
-              <div className="bg-white border border-slate-300 rounded overflow-hidden shadow-sm">
-                <div className="bg-slate-100 border-b border-slate-300 px-3 pt-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex space-x-1">
-                    <button
-                      type="button"
-                      onClick={() => setSubTab("form")}
-                      className={`px-3.5 py-1.5 text-xs font-bold rounded-t border-t border-l border-r transition flex items-center gap-1.5 ${
-                        subTab === "form"
-                          ? "bg-white text-[#0b223d] border-slate-300 -mb-[1px] shadow-sm font-extrabold"
-                          : "bg-slate-200/80 text-slate-600 border-transparent hover:text-slate-900"
-                      }`}
-                    >
-                      <Sliders className="h-3.5 w-3.5 text-blue-600" />
-                      <span>Formulario de Edición (Por Campos)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setSubTab("preview")}
-                      className={`px-3.5 py-1.5 text-xs font-bold rounded-t border-t border-l border-r transition flex items-center gap-1.5 ${
-                        subTab === "preview"
-                          ? "bg-white text-[#0b223d] border-slate-300 -mb-[1px] shadow-sm font-extrabold"
-                          : "bg-slate-200/80 text-slate-600 border-transparent hover:text-slate-900"
-                      }`}
-                    >
-                      <FileText className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>Vista Previa Oficial (Impresión Courier)</span>
-                    </button>
+              {/* MODO IMPRIMIR */}
+              {subTab === "preview" && (
+                <div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" onClick={handlePrint} className="h-9 bg-[#0d6efd] text-xs font-bold text-white hover:bg-[#0b5ed7]">
+                        <Printer className="mr-1.5 h-3.5 w-3.5" /> Imprimir
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={handlePDF} className="h-9 text-xs font-bold">
+                        <Download className="mr-1.5 h-3.5 w-3.5" /> Descargar PDF
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setZoom((z) => Math.max(70, z - 10))} className="h-8 w-8 p-0" aria-label="Alejar">
+                        <ZoomOut className="h-3.5 w-3.5" />
+                      </Button>
+                      <button type="button" onClick={() => setZoom(100)} className="w-12 text-center font-mono text-xs font-bold text-slate-600 hover:text-slate-900" title="Restablecer zoom">
+                        {zoom}%
+                      </button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setZoom((z) => Math.min(160, z + 10))} className="h-8 w-8 p-0" aria-label="Acercar">
+                        <ZoomIn className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2 pb-1.5 sm:pb-0">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleResetOriginalFields}
-                      className="h-6 px-2 text-[10px] text-amber-800 border-amber-300 bg-amber-50 hover:bg-amber-100 rounded font-semibold"
-                      title="Restablecer los valores originales de la planilla"
-                    >
-                      <RotateCcw className="h-2.5 w-2.5 mr-1" /> Revertir datos originales
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
+                    <p className="text-xs text-slate-500">Puedes editar el texto libremente antes de imprimir. Los cambios aquí <strong>no</strong> se guardan en la base de datos.</p>
+                    {editedBoletaText !== liveBoletaText ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditedBoletaText(liveBoletaText)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-amber-400 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900 shadow-sm hover:bg-amber-100"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" /> Restaurar texto
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400 italic">Sin cambios en el texto</span>
+                    )}
+                  </div>
+
+                  <div className="overflow-x-auto bg-slate-50 p-4">
+                    <textarea
+                      value={editedBoletaText}
+                      onChange={(e) => setEditedBoletaText(e.target.value)}
+                      rows={Math.max(45, (editedBoletaText || "").split("\n").length + 2)}
+                      style={{
+                        fontSize: `${(11 * zoom) / 100}px`,
+                        lineHeight: 1.35,
+                        width: `${Math.round(80 * (zoom / 100))}ch`,
+                        minWidth: "68ch",
+                      }}
+                      aria-label="Texto de la boleta a imprimir"
+                      className="mx-auto block resize-none whitespace-pre rounded border border-slate-300 bg-white p-6 font-mono text-black shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* MODO EDITAR (base de datos) */}
+              {subTab === "form" && formData && (
+                <div>
+                  <p className="px-4 pt-3 text-xs text-slate-500">
+                    Los cambios se guardan de forma permanente en la base de datos al presionar <strong>Guardar cambios</strong>.
+                  </p>
+                  <BoletaFormEditor
+                    formData={formData}
+                    onChange={handleFieldChange}
+                    onAutoCalculate={handleAutoCalculate}
+                  />
+                  <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+                    <Button type="button" variant="outline" size="sm" onClick={handleResetOriginalFields} className="h-9 text-xs font-semibold" title="Descartar los cambios que aún no guardaste">
+                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Deshacer cambios
+                    </Button>
+                    <Button size="sm" onClick={handleSaveToDatabase} disabled={savingDb} className="h-9 bg-[#198754] text-xs font-bold text-white hover:bg-[#157347]">
+                      {savingDb ? (
+                        <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Guardando...</>
+                      ) : (
+                        <><Save className="mr-1.5 h-3.5 w-3.5" /> Guardar en BD</>
+                      )}
                     </Button>
                   </div>
                 </div>
-
-                {/* Vista 1: Formulario Estructurado por Campos */}
-                {subTab === "form" && formData && (
-                  <div className="p-3 bg-slate-50">
-                    <div className="bg-[#f0f7ff] border border-[#d0e3ff] p-2.5 rounded mb-3 text-[11px] text-[#084298] flex items-center justify-between">
-                      <span>
-                        Modifique los campos correspondientes (como Fecha de Nacimiento, Cargo, Leyenda, etc.) y presione el botón verde <strong>"Guardar en BD"</strong> para grabarlos en la base de datos de Supabase.
-                      </span>
-                    </div>
-
-                    <BoletaFormEditor
-                      formData={formData}
-                      onChange={handleFieldChange}
-                      onAutoCalculate={handleAutoCalculate}
-                    />
-                  </div>
-                )}
-
-                {/* Vista 2: Visor Oficial Courier con Zoom y Textarea */}
-                {subTab === "preview" && (
-                  <div>
-                    {/* Controles de Zoom */}
-                    <div className="bg-slate-50 border-b border-slate-300 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-700 font-bold">
-                      <div className="flex items-center gap-2">
-                        <span>FORMATO OFICIAL IMPRESIÓN · UGEL Nº 04 TSE</span>
-                        <span className="bg-[#e7f1ff] border border-[#b6d4fe] text-[#084298] text-[10px] px-1.5 py-0.5 rounded font-semibold">
-                          Hoja A4
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1 font-sans">
-                        <span className="text-[11px] text-slate-500 mr-1 font-normal">Zoom:</span>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setZoom((z) => Math.max(70, z - 10))}
-                          className="h-6 w-6 p-0 text-xs rounded border-slate-300 bg-white"
-                          title="Alejar (Zoom Out)"
-                        >
-                          <ZoomOut className="h-3 w-3" />
-                        </Button>
-                        <span className="text-xs font-mono font-bold w-12 text-center text-slate-700">
-                          {zoom}%
-                        </span>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setZoom((z) => Math.min(160, z + 10))}
-                          className="h-6 w-6 p-0 text-xs rounded border-slate-300 bg-white"
-                          title="Acercar (Zoom In)"
-                        >
-                          <ZoomIn className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setZoom(100)}
-                          className="h-6 px-1.5 text-[11px] text-slate-600 hover:text-slate-900 rounded font-normal"
-                          title="Restablecer tamaño normal (100%)"
-                        >
-                          100%
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="bg-[#f0f7ff] border-b border-[#d0e3ff] px-4 py-1.5 text-[11px] text-[#084298]">
-                      <span>Vista previa exacta en Courier New monoespaciado. Cualquier modificación en el formulario se actualiza aquí automáticamente.</span>
-                    </div>
-
-                    <div className="p-4 sm:p-6 overflow-x-auto bg-[#fafafa]">
-                      <textarea
-                        value={editedBoletaText}
-                        onChange={(e) => setEditedBoletaText(e.target.value)}
-                        rows={Math.max(45, (editedBoletaText || "").split("\n").length + 2)}
-                        style={{
-                          fontSize: `${(11 * zoom) / 100}px`,
-                          lineHeight: 1.35,
-                          width: `${Math.round(80 * (zoom / 100))}ch`,
-                          minWidth: "68ch",
-                        }}
-                        className="font-mono text-black whitespace-pre bg-white p-6 rounded border border-slate-300 shadow-sm mx-auto block resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        spellCheck={false}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           )}
           </div>

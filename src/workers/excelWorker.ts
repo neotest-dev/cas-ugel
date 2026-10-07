@@ -209,18 +209,18 @@ const COLUMN_MAP: Record<keyof Worker, ColumnSpec> = {
   aporteObligatorio: { fallback: ["BL"], headers: ["APORTE OBLIGATORIO", "APORTE OBLIG", "APORTE OB."] },
   comision: { fallback: ["BM"], headers: ["COMISION", "COM. VARIABLE", "COMIS."] },
   primaSeguro: { fallback: ["BN"], headers: ["PRIMA SEGURO", "PRIMA SEG", "PRIMA SEG.", "SEG.", "SEGURO"] },
-  montoMensual: { fallback: ["P", "H"], headers: ["PAGO TOTAL MENSUAL"] },
-  descuentoPension: { fallback: ["BH", "S"], headers: ["MONTO SISTEMA PENSION", "ONP", "PRIMA", "INTEGRA", "PROFUTURO", "HABITAT", "DESCUENTO PENSION", "TOT. DSCTO. PENS"] },
+  montoMensual: { fallback: ["P", "H"], headers: ["PAGO TOTAL MENSUAL", "MONTO MENSUAL", "REMUNERACION MENSUAL"] },
+  descuentoPension: { fallback: ["BH"], headers: ["MONTO SISTEMA PENSION", "DESCUENTO PENSION", "TOT. DSCTO. PENS", "TOTAL DESCTO PENSION"] },
   onp: { fallback: ["S"], headers: ["ONP", "ONP 13%", "DECRETO LEY 19990", "D.L. 19990", "19990"] },
   prima: { fallback: ["T"], headers: ["PRIMA"] },
   integra: { fallback: ["U"], headers: ["INTEGRA"] },
   profuturo: { fallback: ["V"], headers: ["PROFUTURO"] },
   habitat: { fallback: ["W"], headers: ["HABITAT", "HABITAD"] },
-  totalDscto: { fallback: ["AA"], headers: ["TOTAL DSCTO"] },
-  otrosDsctos: { headers: ["OTROS DSCTOS", "OTROS DESCUENTOS"] },
-  dsctoEntidades: { headers: ["DESCUENTO ENTIDADES", "DSCTO ENTIDADES", "ENTIDADES"] },
-  dsctoJudicial: { headers: ["DSCTO JUDICIAL", "DESCUENTO JUDICIAL", "JUDICIAL"] },
-  totalLiquido: { fallback: ["AB", "AC"], headers: ["TOTAL LIQUIDO"] }
+  totalDscto: { fallback: ["AC", "AA"], headers: ["TOTAL DSCTO", "TOTAL DESCUENTO", "TOT. DSCTO", "TOTAL DSCTOS"] },
+  otrosDsctos: { fallback: ["AB"], headers: ["OTROS DSCTOS", "OTROS DESCUENTOS", "OTROS DSCTO", "OTRO DSCTO", "OTROS"] },
+  dsctoEntidades: { fallback: ["Z"], headers: ["DESCUENTO ENTIDADES", "DSCTO ENTIDADES", "ENTIDADES", "DSCTO. ENTIDADES", "DESC. ENTIDADES", "DESCUENTO POR LCG", "DSCTO POR LCG", "LCG"] },
+  dsctoJudicial: { fallback: ["Y"], headers: ["DSCTO JUDICIAL", "DESCUENTO JUDICIAL", "JUDICIAL", "DSCTO. JUDICIAL", "DESC. JUDICIAL"] },
+  totalLiquido: { fallback: ["AD", "AC"], headers: ["TOTAL LIQUIDO", "TOTAL LIQ", "TOT. LIQUIDO", "LIQUIDO"] }
 };
 
 function findHeaderColumn(headers: string[], names: string[]): number | undefined {

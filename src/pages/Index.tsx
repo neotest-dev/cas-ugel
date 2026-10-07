@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { TrabajadorConsulta } from "@/components/TrabajadorConsulta";
 import { AdminLogin } from "@/components/AdminLogin";
-import { AdminVentanilla, VentanillaInitialFilters } from "@/components/AdminVentanilla";
 import { AdminUploadExcel } from "@/components/AdminUploadExcel";
-import { AdminHistorialCargas, HistorialNavigateParams } from "@/components/AdminHistorialCargas";
+import { AdminPlanillas } from "@/components/AdminPlanillas";
+import { TutorialDialog } from "@/components/TutorialDialog";
 import { Session } from "@supabase/supabase-js";
 import {
   DropdownMenu,
@@ -16,62 +14,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  User,
-  Shield,
   LogOut,
   UserRound,
   ChevronDown,
-  Users,
   Upload,
-  History,
+  FolderOpen,
   Building,
-  FileText,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
-type MainTab = "trabajador" | "admin";
-type AdminSubTab = "ventanilla" | "upload" | "historial";
+type AdminSubTab = "planillas" | "upload";
 
 const Index = () => {
-  const [searchParams] = useSearchParams();
-  const [mainTab, setMainTab] = useState<MainTab>("trabajador");
-  const [adminSubTab, setAdminSubTab] = useState<AdminSubTab>("ventanilla");
+  const [adminSubTab, setAdminSubTab] = useState<AdminSubTab>("planillas");
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [ventanillaFilters, setVentanillaFilters] = useState<VentanillaInitialFilters | null>(null);
-
-  // Leer parámetros de URL si viene desde un link externo o target="_blank"
-  useEffect(() => {
-    const tabParam = searchParams.get("tab") as MainTab | null;
-    const subTabParam = searchParams.get("subtab") as AdminSubTab | null;
-    const catParam = searchParams.get("categoria");
-    const mesParam = searchParams.get("mes");
-    const anioParam = searchParams.get("anio");
-
-    if (tabParam === "admin" || catParam !== null || mesParam !== null || anioParam !== null) {
-      setMainTab("admin");
-    }
-    if (subTabParam) {
-      setAdminSubTab(subTabParam);
-    }
-    if (catParam !== null || mesParam !== null || anioParam !== null) {
-      setAdminSubTab("ventanilla");
-      setVentanillaFilters({
-        categoriaId: catParam || "",
-        mes: mesParam || "",
-        anio: anioParam || "",
-      });
-    }
-  }, [searchParams]);
-
-  const handleNavigateToConsulta = (params: HistorialNavigateParams) => {
-    setVentanillaFilters({
-      categoriaId: params.categoriaId,
-      mes: params.mes,
-      anio: params.anio,
-    });
-    setAdminSubTab("ventanilla");
-  };
 
   useEffect(() => {
     document.title = "CAS - UGEL 04 TSE";
@@ -121,7 +78,7 @@ const Index = () => {
 
             {/* Estado de Sesión / Botón Salir */}
             <div className="flex items-center gap-2 self-end md:self-center">
-              {session && mainTab === "admin" && (
+              {session && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -159,108 +116,43 @@ const Index = () => {
         </div>
       </header>
 
-      {/* 2. Pestañas de Navegación Principales (Estilo Bootstrap Nav-Tabs) */}
-      <nav className="no-print bg-[#132f50] text-slate-200 border-b border-slate-300 shadow-sm">
-        <div className="container mx-auto px-4">
-          <div className="flex w-full space-x-1 sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setMainTab("trabajador")}
-              className={`inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-center text-[11px] leading-tight font-semibold border-b-2 transition-all sm:flex-none sm:gap-2 sm:px-5 sm:py-3 sm:text-sm ${
-                mainTab === "trabajador"
-                  ? "bg-[#f4f6f9] text-[#0b223d] border-[#c59b27] font-bold shadow-inner"
-                  : "text-slate-200 border-transparent hover:text-white hover:bg-[#1a3d66]"
-              }`}
-            >
-              <User className="h-4 w-4" />
-              <span>Portal del Trabajador</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setMainTab("admin")}
-              className={`inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-center text-[11px] leading-tight font-semibold border-b-2 transition-all sm:flex-none sm:gap-2 sm:px-5 sm:py-3 sm:text-sm ${
-                mainTab === "admin"
-                  ? "bg-[#f4f6f9] text-[#0b223d] border-[#c59b27] font-bold shadow-inner"
-                  : "text-slate-200 border-transparent hover:text-white hover:bg-[#1a3d66]"
-              }`}
-            >
-              <Shield className="h-4 w-4 text-amber-300" />
-              <span>Oficina de Planillas</span>
-            </button>
-          </div>
-        </div>
-      </nav>
-
       {/* 3. Contenido Principal */}
       <main className="container mx-auto flex-1 max-w-7xl px-3 py-4 sm:px-4 sm:py-5">
-        {/* MODO 1: Consulta del Trabajador */}
-        {mainTab === "trabajador" && <TrabajadorConsulta />}
-
-        {/* MODO 2: Oficina de Planillas (Admin) */}
-        {mainTab === "admin" && (
+        {/* Oficina de Planillas (atención presencial, solo administradores) */}
+        {(
           <div className="space-y-4">
             {!session && !authLoading ? (
-              <AdminLogin onLoginSuccess={() => setAdminSubTab("ventanilla")} />
+              <AdminLogin onLoginSuccess={() => setAdminSubTab("planillas")} />
             ) : (
               <div className="space-y-4">
-                {/* Sub-barra de herramientas Admin (Estilo Bootstrap Nav-Pills) */}
-                <div className="bg-white border border-slate-300 rounded p-2 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div className="flex flex-wrap gap-1.5">
+                {/* Pestañas */}
+                <div className="flex gap-1.5">
+                  {([
+                    { id: "planillas", label: "Planillas", icon: FolderOpen, color: "text-blue-400" },
+                    { id: "upload", label: "Importar Excel", icon: Upload, color: "text-emerald-400" },
+                  ] as const).map(({ id, label, icon: Icon, color }) => (
                     <button
+                      key={id}
                       type="button"
-                      onClick={() => setAdminSubTab("ventanilla")}
-                      className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded border transition ${
-                        adminSubTab === "ventanilla"
-                          ? "bg-[#0b223d] text-white border-[#0b223d] shadow-sm"
-                          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                      onClick={() => setAdminSubTab(id)}
+                      className={`inline-flex items-center gap-2 rounded border px-4 py-2 text-xs font-bold transition ${
+                        adminSubTab === id
+                          ? "border-[#0b223d] bg-[#0b223d] text-white shadow-sm"
+                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                       }`}
                     >
-                      <Users className="h-3.5 w-3.5 text-blue-400" />
-                      <span>Consultar</span>
+                      <Icon className={`h-3.5 w-3.5 ${color}`} />
+                      {label}
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setAdminSubTab("upload")}
-                      className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded border transition ${
-                        adminSubTab === "upload"
-                          ? "bg-[#0b223d] text-white border-[#0b223d] shadow-sm"
-                          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
-                      }`}
-                    >
-                      <Upload className="h-3.5 w-3.5 text-emerald-400" />
-                      <span>Importar Planilla Excel</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setAdminSubTab("historial")}
-                      className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded border transition ${
-                        adminSubTab === "historial"
-                          ? "bg-[#0b223d] text-white border-[#0b223d] shadow-sm"
-                          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
-                      }`}
-                    >
-                      <History className="h-3.5 w-3.5 text-amber-400" />
-                      <span>Historial de Planillas</span>
-                    </button>
+                  ))}
+                  <div className="ml-auto">
+                    <TutorialDialog />
                   </div>
-
-                  <span className="text-[11px] text-slate-500 font-medium px-2 py-1 bg-slate-100 border border-slate-200 rounded self-start sm:self-auto">
-                    Panel Administrativo CAS
-                  </span>
                 </div>
 
-                {/* Vista Activa */}
-                {adminSubTab === "ventanilla" && (
-                  <AdminVentanilla initialFilters={ventanillaFilters} />
-                )}
+                {adminSubTab === "planillas" && <AdminPlanillas />}
                 {adminSubTab === "upload" && (
-                  <AdminUploadExcel onPlanillaSaved={() => setAdminSubTab("historial")} />
-                )}
-                {adminSubTab === "historial" && (
-                  <AdminHistorialCargas onNavigateToConsulta={handleNavigateToConsulta} />
+                  <AdminUploadExcel onPlanillaSaved={() => setAdminSubTab("planillas")} />
                 )}
               </div>
             )}
