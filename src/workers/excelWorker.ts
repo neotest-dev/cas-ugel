@@ -57,6 +57,9 @@ export interface Worker {
   comision: string;
   primaSeguro: string;
   montoMensual: string;
+  remuneracionBase: string;
+  haberes: string;              // JSON: [{label: string, monto: string}]
+  descuentosAdicionales: string; // JSON: [{label: string, monto: string}]
   descuentoPension: string;
   onp: string;
   prima: string;
@@ -116,7 +119,7 @@ function txt(v: CellValue | undefined): string {
     if ("result" in v) {
       if (v.result === null || v.result === undefined) return "";
       if (typeof v.result === "object") {
-        return txt(v.result as any);
+        return txt(v.result as CellValue);
       }
       return String(v.result).trim();
     }
@@ -138,7 +141,7 @@ function money(v: CellValue | undefined): string {
     if ("result" in v) {
       if (v.result === null || v.result === undefined) return "0.00";
       if (typeof v.result === "object") {
-        return money(v.result as any);
+        return money(v.result as CellValue);
       }
       const n = Number(v.result);
       return Number.isNaN(n) ? "0.00" : n.toFixed(2);
@@ -190,7 +193,7 @@ function isDataRow(row: RowValues | undefined): boolean {
   return false;
 }
 
-const COLUMN_MAP: Record<keyof Worker, ColumnSpec> = {
+const COLUMN_MAP: Partial<Record<keyof Worker, ColumnSpec>> = {
   n: { fallback: ["A"], headers: ["N°", "Nº", "N.", "NUMERO", "NUM"] },
   dni: { fallback: ["B"], headers: ["DNI", "N° DNI", "Nº DNI", "DOCUMENTO DE IDENTIDAD", "DOC. IDENTIDAD", "DOCUMENTO"] },
   apPaterno: { fallback: ["C"], headers: ["APELLIDO PATERNO", "AP. PATERNO", "APE. PATERNO", "PATERNO"] },
@@ -210,6 +213,7 @@ const COLUMN_MAP: Record<keyof Worker, ColumnSpec> = {
   comision: { fallback: ["BM"], headers: ["COMISION", "COM. VARIABLE", "COMIS."] },
   primaSeguro: { fallback: ["BN"], headers: ["PRIMA SEGURO", "PRIMA SEG", "PRIMA SEG.", "SEG.", "SEGURO"] },
   montoMensual: { fallback: ["R", "P"], headers: ["TOTAL PAGADO", "PAGO TOTAL MENSUAL", "TOTAL BRUTO", "TOTAL REMUNERACION", "TOTAL INGRESOS", "REMUNERACION MENSUAL", "MONTO MENSUAL"] },
+  remuneracionBase: { fallback: ["H"], headers: ["MONTO MENSUAL", "REMUNERACION BASICA", "REM. BASICA", "REMUNERACION BASE", "SUELDO BASICO", "BASICO", "SALARIO BASE"] },
   descuentoPension: { fallback: ["BH"], headers: ["MONTO SISTEMA PENSION", "DESCUENTO PENSION", "TOT. DSCTO. PENS", "TOTAL DESCTO PENSION"] },
   onp: { fallback: ["S"], headers: ["ONP", "ONP 13%", "DECRETO LEY 19990", "D.L. 19990", "19990"] },
   prima: { fallback: ["T"], headers: ["PRIMA"] },
@@ -279,11 +283,29 @@ function buildHeaders(rows: CellValue[][], rowIndexes: number[], maxCols: number
   return headers;
 }
 
+// Igual que buildHeaders pero sin normalizar (para mostrar etiquetas legibles en la boleta)
+function buildRawHeaders(rows: CellValue[][], rowIndexes: number[], maxCols: number): string[] {
+  const headerRows = rowIndexes
+    .map((rowNumber) => rows[rowNumber])
+    .filter(Boolean) as RowValues[];
+
+  const rawHeaders: string[] = [];
+
+  for (let c = 1; c <= maxCols; c++) {
+    rawHeaders[c] = headerRows
+      .map(row => txt(row[c]))
+      .find(v => v.length > 0) ?? "";
+  }
+
+  return rawHeaders;
+}
+
 function resolveColumns(headers: string[]): Partial<Record<keyof Worker, number>> {
   const col: Partial<Record<keyof Worker, number>> = {};
 
   (Object.keys(COLUMN_MAP) as (keyof Worker)[]).forEach((key) => {
-    col[key] = resolveColumn(COLUMN_MAP[key], headers);
+    const spec = COLUMN_MAP[key];
+    if (spec) col[key] = resolveColumn(spec, headers);
   });
 
   return col;
@@ -366,6 +388,7 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
       score: number;
       rowIndexes: number[];
       headers: string[];
+      rawHeaders: string[];
       col: Partial<Record<keyof Worker, number>>;
     }> = [];
 
@@ -401,6 +424,7 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
         ].filter(Boolean).length;
         const score = dniRows * 100 + baseColumns * 25 + matches - r * 0.1;
 
+      const candidateRawHeaders = buildRawHeaders(rows, rowIndexes, maxCols);
         headerCandidates.push({
           rowIndex: r,
           matches,
@@ -408,6 +432,7 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
           score,
           rowIndexes,
           headers: candidateHeaders,
+          rawHeaders: candidateRawHeaders,
           col: candidateCol,
         });
       }
@@ -416,6 +441,7 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
     headerCandidates.sort((a, b) => b.score - a.score || a.rowIndex - b.rowIndex);
 
     const fallbackHeaders = buildHeaders(rows, [4, 5, 6], maxCols);
+    const fallbackRawHeaders = buildRawHeaders(rows, [4, 5, 6], maxCols);
     const selectedHeader = headerCandidates[0] ?? {
       rowIndex: 5,
       matches: 0,
@@ -423,14 +449,49 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
       score: 0,
       rowIndexes: [4, 5, 6].filter((rowNumber) => rowNumber < rows.length),
       headers: fallbackHeaders,
+      rawHeaders: fallbackRawHeaders,
       col: resolveColumns(fallbackHeaders),
     };
 
     const headerRowIdx = selectedHeader.rowIndex;
     const headerRowIndexes = selectedHeader.rowIndexes;
     const headers = selectedHeader.headers;
+    const rawHeaders = selectedHeader.rawHeaders;
     const col = selectedHeader.col;
     const maxMatches = selectedHeader.matches;
+
+    // Detectar columnas de haberes dinámicos (entre remuneracionBase y montoMensual)
+    const colBase = col.remuneracionBase ?? 0;
+    const colTotal = col.montoMensual ?? 0;
+    const haberesColumns: Array<{ colIdx: number; label: string }> = [];
+    if (colBase > 0 && colTotal > colBase + 1) {
+      for (let c = colBase + 1; c < colTotal; c++) {
+        const rawLabel = (rawHeaders[c] ?? "").trim();
+        if (rawLabel && norm(rawLabel) !== "PAGO TOTAL MENSUAL") {
+          haberesColumns.push({ colIdx: c, label: rawLabel });
+        }
+      }
+    }
+
+    // Detectar columnas de descuentos adicionales (entre pension y totalDscto, excluye ya mapeadas)
+    const alreadyMappedCols = new Set<number | undefined>([
+      col.onp, col.prima, col.integra, col.profuturo, col.habitat,
+      col.descuentoPension, col.aporteObligatorio, col.comision, col.primaSeguro,
+      col.otrosDsctos, col.dsctoEntidades, col.dsctoJudicial, col.totalDscto,
+    ]);
+    const pensionColNums = [col.onp, col.prima, col.integra, col.profuturo, col.habitat]
+      .filter((c): c is number => typeof c === "number" && c > 0);
+    const colPensionStart = pensionColNums.length > 0 ? Math.min(...pensionColNums) : 0;
+    const colDsctoTotal = col.totalDscto ?? 0;
+    const descuentosAdicionalesColumns: Array<{ colIdx: number; label: string }> = [];
+    if (colPensionStart > 0 && colDsctoTotal > colPensionStart) {
+      for (let c = colPensionStart; c < colDsctoTotal; c++) {
+        if (!alreadyMappedCols.has(c)) {
+          const rawLabel = (rawHeaders[c] ?? "").trim();
+          if (rawLabel) descuentosAdicionalesColumns.push({ colIdx: c, label: rawLabel });
+        }
+      }
+    }
 
     const workers: Worker[] = [];
     let candidateRows = 0;
@@ -490,6 +551,16 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
         }
       }
 
+      // Haberes dinámicos: columnas entre remuneración base y pago total
+      const haberesList = haberesColumns
+        .map(({ colIdx, label }) => ({ label, monto: money(row[colIdx]) }))
+        .filter(h => Number(h.monto) > 0);
+
+      // Descuentos adicionales dinámicos: columnas entre pensíon y total descuento
+      const descuentosAdicionalesList = descuentosAdicionalesColumns
+        .map(({ colIdx, label }) => ({ label, monto: money(row[colIdx]) }))
+        .filter(d => Number(d.monto) > 0);
+
       workers.push({
         n: txt(row[col.n ?? 0]) || String(workers.length + 1),
         dni,
@@ -510,6 +581,9 @@ self.onmessage = async (e: MessageEvent<MsgIn>) => {
         comision: money(row[col.comision ?? 0]),
         primaSeguro: money(row[col.primaSeguro ?? 0]),
         montoMensual: money(row[col.montoMensual ?? 0]),
+        remuneracionBase: money(row[col.remuneracionBase ?? 0]),
+        haberes: JSON.stringify(haberesList),
+        descuentosAdicionales: JSON.stringify(descuentosAdicionalesList),
         descuentoPension: descPension,
         onp: cellONP,
         prima: cellPrima,

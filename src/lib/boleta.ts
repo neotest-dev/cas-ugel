@@ -18,6 +18,9 @@ export interface Worker {
     comision: string;
     primaSeguro: string;
     montoMensual: string;
+    remuneracionBase: string;
+    haberes: string;              // JSON: [{label: string, monto: string}]
+    descuentosAdicionales: string; // JSON: [{label: string, monto: string}]
     descuentoPension: string;
     onp: string;
     prima: string;
@@ -267,9 +270,30 @@ export function buildBoletaText(
         return n.toFixed(2);
     };
 
+    // Base salary (+)
     lines.push(
-        `PAGO TOTAL MENSUAL            S/.  ${formatMoney(w.montoMensual)}`
+        `+MONTO MENSUAL                S/.  ${formatMoney(w.remuneracionBase || w.montoMensual)}`
     );
+
+    // Haberes dinámicos (+) — solo los que tienen valor > 0
+    let addedLines = 0;
+    let haberesList: Array<{ label: string; monto: string }> = [];
+    try { haberesList = JSON.parse(w.haberes || "[]"); } catch { haberesList = []; }
+    const isPagoTotalMensual = (label: string) =>
+        String(label ?? "")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toUpperCase()
+            .replace(/[^A-Z0-9]+/g, " ")
+            .trim() === "PAGO TOTAL MENSUAL";
+    for (const h of haberesList) {
+        if (isPagoTotalMensual(h.label)) continue;
+        if (parseNum(h.monto) > 0) {
+            const lbl = `+${h.label}`.slice(0, 29).padEnd(29, " ");
+            lines.push(`${lbl} S/.  ${formatMoney(h.monto)}`);
+            addedLines++;
+        }
+    }
 
     if (isONP) {
         // ONP: mostrar en una sola línea con el nombre del sistema
@@ -294,8 +318,17 @@ export function buildBoletaText(
         }
     }
 
+    // Descuentos adicionales dinámicos (-) — solo los que tienen valor > 0
+    let descuentosAdicionalesList: Array<{ label: string; monto: string }> = [];
+    try { descuentosAdicionalesList = JSON.parse(w.descuentosAdicionales || "[]"); } catch { descuentosAdicionalesList = []; }
+    for (const d of descuentosAdicionalesList) {
+        if (parseNum(d.monto) > 0) {
+            const lbl = `-${d.label}`.slice(0, 29).padEnd(29, " ");
+            lines.push(`${lbl} S/.  ${formatMoney(d.monto)}`);
+            addedLines++;
+        }
+    }
 
-    let addedLines = 0;
     if (parseNum(w.otrosDsctos) > 0) {
         lines.push(`-OTROS DSCTOS`.padEnd(29, " ") + ` S/.  ${formatMoney(w.otrosDsctos)}`);
         addedLines++;
@@ -327,7 +360,7 @@ export function buildBoletaText(
     }
 
     lines.push(
-        `T-DSCTO S/.${formatMoney(w.totalDscto)}   T-LIQUI S/.  ${liquidoNum.toFixed(2)}`
+        `T-REMUN S/.${formatMoney(w.montoMensual)}  T-DSCTO S/.${formatMoney(w.totalDscto)}   T-LIQUI S/.  ${liquidoNum.toFixed(2)}`
     );
 
     lines.push("Mensajes :");

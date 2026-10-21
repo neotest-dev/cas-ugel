@@ -53,6 +53,9 @@ const MONTH_OPTIONS: Array<[string, string]> = [
 
 const YEAR_OPTIONS = Array.from({ length: 6 }, (_, index) => String(new Date().getFullYear() - index));
 
+const jsonToString = (value: unknown): string =>
+  typeof value === "string" ? value : JSON.stringify(Array.isArray(value) ? value : []);
+
 export interface VentanillaInitialFilters {
   categoriaId?: string;
   mes?: string;
@@ -255,6 +258,9 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
         fecha_afiliacion: selectedBoleta.fecha_afiliacion || "",
         fecha_devengue: selectedBoleta.fecha_devengue || "",
         monto_mensual: selectedBoleta.monto_mensual || "0.00",
+        remuneracion_base: String(selectedBoleta.remuneracion_base ?? "0.00"),
+        haberes: jsonToString(selectedBoleta.haberes),
+        descuentos_adicionales: jsonToString(selectedBoleta.descuentos_adicionales),
         onp: selectedBoleta.onp || "0.00",
         prima: selectedBoleta.prima || "0.00",
         integra: selectedBoleta.integra || "0.00",
@@ -291,6 +297,9 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
       fechaAfiliacion: formData.fecha_afiliacion,
       fechaDevengue: formData.fecha_devengue,
       montoMensual: formData.monto_mensual,
+      remuneracionBase: formData.remuneracion_base,
+      haberes: formData.haberes,
+      descuentosAdicionales: formData.descuentos_adicionales,
       descuentoPension: formData.onp,
       onp: formData.onp,
       prima: formData.prima,
@@ -419,6 +428,9 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
       fecha_afiliacion: selectedBoleta.fecha_afiliacion || "",
       fecha_devengue: selectedBoleta.fecha_devengue || "",
       monto_mensual: selectedBoleta.monto_mensual || "0.00",
+      remuneracion_base: String(selectedBoleta.remuneracion_base ?? "0.00"),
+      haberes: jsonToString(selectedBoleta.haberes),
+      descuentos_adicionales: jsonToString(selectedBoleta.descuentos_adicionales),
       onp: selectedBoleta.onp || "0.00",
       prima: selectedBoleta.prima || "0.00",
       integra: selectedBoleta.integra || "0.00",
@@ -478,6 +490,9 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
         fecha_afiliacion: formData.fecha_afiliacion,
         fecha_devengue: formData.fecha_devengue,
         monto_mensual: formData.monto_mensual,
+        remuneracion_base: formData.remuneracion_base,
+        haberes: formData.haberes,
+        descuentos_adicionales: formData.descuentos_adicionales,
         onp: formData.onp,
         prima: formData.prima,
         integra: formData.integra,
@@ -844,8 +859,8 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
                       style={{
                         fontSize: `${(11 * zoom) / 100}px`,
                         lineHeight: 1.35,
-                        width: `${Math.round(80 * (zoom / 100))}ch`,
-                        minWidth: "68ch",
+                        width: `${Math.round(102 * (zoom / 100))}ch`,
+                        minWidth: "88ch",
                       }}
                       aria-label="Texto de la boleta a imprimir"
                       className="mx-auto block resize-none whitespace-pre rounded border border-slate-300 bg-white p-6 font-mono text-black shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500"

@@ -655,8 +655,8 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
               style={{
                 fontSize: `${(11 * zoom) / 100}px`,
                 lineHeight: 1.35,
-                width: `${Math.round(80 * (zoom / 100))}ch`,
-                minWidth: "68ch",
+                width: `${Math.round(102 * (zoom / 100))}ch`,
+                minWidth: "88ch",
               }}
               className="font-mono text-black whitespace-pre bg-white p-6 rounded border border-slate-300 shadow-sm mx-auto block resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
               spellCheck={false}

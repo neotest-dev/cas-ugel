@@ -30,6 +30,9 @@ export interface BoletaHistoricaItem {
   fecha_afiliacion: string;
   fecha_devengue: string;
   monto_mensual: string;
+  remuneracion_base?: string | number | null;
+  haberes?: unknown;
+  descuentos_adicionales?: unknown;
   descuento_pension: string;
   onp: string;
   prima: string;
@@ -48,6 +51,56 @@ export interface BoletaHistoricaItem {
   anio: string;
   categoria_label: string;
   boleta_texto_personalizado?: string | null;
+}
+
+function stringifyJsonArray(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return JSON.stringify(value);
+  return "[]";
+}
+
+function toJsonArray(value: string | null | undefined): unknown[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+interface ExistingTrabajadorMaster {
+  dni: string;
+  ap_paterno: string | null;
+  ap_materno: string | null;
+  nombres: string | null;
+  fecha_nac: string | null;
+  cod_essalud: string | null;
+  cuenta_banco_ultimos4: string | null;
+}
+
+async function fetchExistingTrabajadores(
+  dnis: string[]
+): Promise<Map<string, ExistingTrabajadorMaster>> {
+  const existing = new Map<string, ExistingTrabajadorMaster>();
+  const uniqueDnis = [...new Set(dnis.filter(Boolean))];
+
+  for (const chunk of chunkArray(uniqueDnis, 100)) {
+    const { data, error } = await supabase
+      .from("trabajadores")
+      .select("dni, ap_paterno, ap_materno, nombres, fecha_nac, cod_essalud, cuenta_banco_ultimos4")
+      .in("dni", chunk);
+
+    if (error) {
+      throw new Error(`No se pudieron leer los datos existentes de trabajadores: ${error.message}`);
+    }
+
+    for (const row of (data ?? []) as ExistingTrabajadorMaster[]) {
+      existing.set(row.dni, row);
+    }
+  }
+
+  return existing;
 }
 
 export function boletaItemToWorker(item: BoletaHistoricaItem): Worker {
@@ -79,6 +132,9 @@ export function boletaItemToWorker(item: BoletaHistoricaItem): Worker {
     comision: String(item.comision ?? "0.00"),
     primaSeguro: String(item.prima_seguro ?? "0.00"),
     montoMensual: String(item.monto_mensual ?? "0.00"),
+    remuneracionBase: String(item.remuneracion_base ?? "0.00"),
+    haberes: stringifyJsonArray(item.haberes),
+    descuentosAdicionales: stringifyJsonArray(item.descuentos_adicionales),
     descuentoPension: String(item.descuento_pension ?? "0.00"),
     onp: String(item.onp ?? "0.00"),
     prima: String(item.prima ?? "0.00"),
@@ -264,6 +320,9 @@ export async function savePlanillaToDatabase(
       };
     }
 
+    onProgress?.("Verificando datos existentes de trabajadores...", 15);
+    const existingTrabajadores = await fetchExistingTrabajadores(workers.map((w) => w.dni));
+
     if (existingList.length > 0 && isReplace) {
       onProgress?.("Eliminando versión previa...", 20);
       const matchSameName = existingList.find(
@@ -305,15 +364,16 @@ export async function savePlanillaToDatabase(
     const trabajadoresPayload = workers.map((w) => {
       const cleanDigits = (w.cuentaBanco || "").replace(/\D/g, "");
       const ultimos4 = cleanDigits.length >= 4 ? cleanDigits.slice(-4) : cleanDigits || null;
+      const existing = existingTrabajadores.get(w.dni);
 
       return {
         dni: w.dni,
-        ap_paterno: w.apPaterno,
-        ap_materno: w.apMaterno,
-        nombres: w.nombres,
-        fecha_nac: w.fechaNac || null,
-        cod_essalud: w.codEssalud || null,
-        cuenta_banco_ultimos4: ultimos4,
+        ap_paterno: w.apPaterno?.trim() || existing?.ap_paterno || "",
+        ap_materno: w.apMaterno?.trim() || existing?.ap_materno || "",
+        nombres: w.nombres?.trim() || existing?.nombres || "",
+        fecha_nac: w.fechaNac?.trim() || existing?.fecha_nac || null,
+        cod_essalud: w.codEssalud?.trim() || existing?.cod_essalud || null,
+        cuenta_banco_ultimos4: ultimos4 || existing?.cuenta_banco_ultimos4 || null,
         updated_at: new Date().toISOString(),
       };
     });
@@ -348,6 +408,9 @@ export async function savePlanillaToDatabase(
       fecha_afiliacion: w.fechaAfiliacion,
       fecha_devengue: w.fechaDevengue,
       monto_mensual: Number(w.montoMensual) || 0,
+      remuneracion_base: Number(w.remuneracionBase) || 0,
+      haberes: toJsonArray(w.haberes),
+      descuentos_adicionales: toJsonArray(w.descuentosAdicionales),
       descuento_pension: Number(w.descuentoPension) || 0,
       onp: Number(w.onp) || 0,
       prima: Number(w.prima) || 0,
@@ -474,6 +537,9 @@ const BOLETA_SEARCH_SELECT = `
       fecha_afiliacion,
       fecha_devengue,
       monto_mensual,
+      remuneracion_base,
+      haberes,
+      descuentos_adicionales,
       descuento_pension,
       onp,
       prima,
@@ -519,6 +585,9 @@ interface AdminBoletaDbRow {
   fecha_afiliacion: string;
   fecha_devengue: string;
   monto_mensual: string | number | null;
+  remuneracion_base?: string | number | null;
+  haberes?: unknown;
+  descuentos_adicionales?: unknown;
   descuento_pension: string | number | null;
   onp: string | number | null;
   prima: string | number | null;
@@ -701,6 +770,9 @@ export async function searchAdminBoletas(
     fecha_afiliacion: item.fecha_afiliacion,
     fecha_devengue: item.fecha_devengue,
     monto_mensual: String(item.monto_mensual ?? "0.00"),
+    remuneracion_base: String(item.remuneracion_base ?? "0.00"),
+    haberes: item.haberes ?? [],
+    descuentos_adicionales: item.descuentos_adicionales ?? [],
     descuento_pension: String(item.descuento_pension ?? "0.00"),
     onp: String(item.onp ?? "0.00"),
     prima: String(item.prima ?? "0.00"),
@@ -817,6 +889,9 @@ export interface BoletaFormData {
   fecha_afiliacion: string;
   fecha_devengue: string;
   monto_mensual: string;
+  remuneracion_base: string;
+  haberes: string;
+  descuentos_adicionales: string;
   onp: string;
   prima: string;
   integra: string;
@@ -863,7 +938,19 @@ export async function actualizarDatosBoletaYTrabajador(
       p_total_liquido: Number(data.total_liquido) || 0,
     });
 
+    const jsonFields = {
+      remuneracion_base: Number(data.remuneracion_base) || 0,
+      haberes: toJsonArray(data.haberes),
+      descuentos_adicionales: toJsonArray(data.descuentos_adicionales),
+    };
+
     if (!rpcError) {
+      const { error: jsonErr } = await supabase
+        .from("boletas_detalle")
+        .update(jsonFields)
+        .eq("id", data.boleta_id);
+
+      if (jsonErr) return { ok: false, error: jsonErr.message };
       return { ok: true };
     }
 
@@ -900,6 +987,7 @@ export async function actualizarDatosBoletaYTrabajador(
         fecha_afiliacion: data.fecha_afiliacion.trim(),
         fecha_devengue: data.fecha_devengue.trim(),
         monto_mensual: Number(data.monto_mensual) || 0,
+        ...jsonFields,
         onp: Number(data.onp) || 0,
         prima: Number(data.prima) || 0,
         integra: Number(data.integra) || 0,
