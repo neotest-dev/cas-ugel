@@ -11,13 +11,14 @@ export function PrintBoletaPortal({ text }: PrintBoletaPortalProps) {
   return createPortal(
     <div id="boleta-print-root">
       {pages.map((page, index) => (
-        <pre
-          className="boleta-print-mono"
+        <div
+          className="boleta-print-page"
           key={index}
           style={{ pageBreakAfter: index < pages.length - 1 ? "always" : "auto" }}
         >
-          {page}
-        </pre>
+          <pre className="boleta-print-mono">{page}</pre>
+          <img className="boleta-print-seal" src="/SELLO.png" alt="Sello y firma de planillas" />
+        </div>
       ))}
     </div>,
     document.body

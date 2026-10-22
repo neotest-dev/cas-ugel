@@ -236,14 +236,30 @@ All colors MUST be HSL.
     break-inside: avoid;
   }
 
+  .boleta-print-page {
+    position: relative;
+    min-height: 270mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
   .boleta-print-mono {
     font-family: "Courier New", Courier, monospace !important;
-    font-size: 8.5pt !important;
+    font-size: 10.5pt !important;
     line-height: 1.32 !important;
     letter-spacing: 0 !important;
     white-space: pre !important;
     color: #000000 !important;
     margin: 0 !important;
     padding: 0 !important;
+  }
+
+  .boleta-print-seal {
+    position: absolute;
+    top: 120mm;
+    left: 108mm;
+    width: 57mm;
+    height: auto;
+    object-fit: contain;
   }
 }
