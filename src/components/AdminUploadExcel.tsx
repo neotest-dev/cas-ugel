@@ -41,6 +41,7 @@ import {
   ZoomIn,
   ZoomOut,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { exportBoletaToPDF } from "@/lib/pdfExport";
@@ -76,6 +77,7 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
   const [showOverwriteModal, setShowOverwriteModal] = useState(false);
   const [pendingOverwriteMsg, setPendingOverwriteMsg] = useState("");
   const [duplicateInfo, setDuplicateInfo] = useState<DuplicatePlanillaInfo | null>(null);
+  const [showAiComingSoon, setShowAiComingSoon] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const workerRef = useRef<globalThis.Worker | null>(null);
@@ -425,6 +427,14 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
           <div className="flex flex-wrap items-center gap-1.5">
             <Button
               size="sm"
+              onClick={() => setShowAiComingSoon(true)}
+              className="h-9 rounded bg-gradient-to-r from-violet-600 via-fuchsia-600 to-indigo-600 text-xs font-bold text-white shadow-sm transition hover:from-violet-700 hover:via-fuchsia-700 hover:to-indigo-700 hover:shadow-md"
+            >
+              <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Analizar con IA
+            </Button>
+
+            <Button
+              size="sm"
               onClick={() => handleSaveToDatabase("check")}
               disabled={savingToDb}
               className="h-9 rounded bg-[#198754] hover:bg-[#157347] text-white font-bold text-xs shadow-sm"
@@ -664,6 +674,25 @@ export function AdminUploadExcel({ onPlanillaSaved }: AdminUploadExcelProps) {
           </div>
         </div>
       </div>
+
+      <AlertDialog open={showAiComingSoon} onOpenChange={setShowAiComingSoon}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-violet-800">
+              <Sparkles className="h-5 w-5 text-fuchsia-600" />
+              Análisis con IA: próximamente
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Estamos preparando esta función para revisar los encabezados y los tipos de datos del Excel, y ayudar a que la planilla se lea correctamente. Por ahora, puedes verificar los datos detectados en la vista previa antes de publicarlos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setShowAiComingSoon(false)}>
+              Entendido
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Modal Confirmación de Sobreescritura o Carga Adicional */}
       <AlertDialog open={showOverwriteModal} onOpenChange={setShowOverwriteModal}>
