@@ -17,7 +17,7 @@ export function PrintBoletaPortal({ text }: PrintBoletaPortalProps) {
           style={{ pageBreakAfter: index < pages.length - 1 ? "always" : "auto" }}
         >
           <pre className="boleta-print-mono">{page}</pre>
-          <img className="boleta-print-seal" src="/SELLO.png" alt="Sello y firma de planillas" />
+          <img className="boleta-print-seal" src="/circulito.png" alt="Sello y firma de planillas" />
         </div>
       ))}
     </div>,

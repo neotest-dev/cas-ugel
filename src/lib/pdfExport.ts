@@ -45,7 +45,7 @@ async function addBoletaPage(pdf: jsPDF, text: string): Promise<void> {
     y += 4.2;
   }
 
-  const response = await fetch("/SELLO.png");
+  const response = await fetch("/circulito.png");
   if (response.ok) {
     const seal = await response.blob();
     const dataUrl = await new Promise<string>((resolve, reject) => {

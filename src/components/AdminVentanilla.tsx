@@ -861,7 +861,7 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
                         lineHeight: 1.35,
                         width: `${Math.round(102 * (zoom / 100))}ch`,
                         minWidth: "88ch",
-                        backgroundImage: "url('/SELLO.png')",
+                        backgroundImage: "url('/circulito.png')",
                         backgroundRepeat: "no-repeat",
                         backgroundPosition: "left 69% top 63.5%",
                         backgroundSize: "160px auto",
