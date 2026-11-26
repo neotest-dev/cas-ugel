@@ -54,6 +54,6 @@ async function addBoletaPage(pdf: jsPDF, text: string): Promise<void> {
       reader.onerror = reject;
       reader.readAsDataURL(seal);
     });
-    pdf.addImage(dataUrl, "PNG", 108, 120, 18, 7.2);
+    pdf.addImage(dataUrl, "PNG", 108, 120, 16.4, 6.56);
   }
 }
