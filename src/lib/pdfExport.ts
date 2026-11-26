@@ -54,8 +54,8 @@ async function addBoletaPage(pdf: jsPDF, text: string): Promise<void> {
       reader.onerror = reject;
       reader.readAsDataURL(seal);
     });
-    const sealWidth = 16.4;
-    const { width, height } = pdf.getImageProperties(dataUrl);
-    pdf.addImage(dataUrl, "PNG", 108, 120, sealWidth, (sealWidth * height) / width);
+    // The source is a near-square seal; use matching dimensions to prevent
+    // jsPDF from rendering it as a flattened ellipse in exported PDFs.
+    pdf.addImage(dataUrl, "PNG", 108, 120, 16.4, 16.4);
   }
 }
