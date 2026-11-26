@@ -864,7 +864,7 @@ export function AdminVentanilla({ initialFilters, hideSearch = false }: AdminVen
                         backgroundImage: "url('/circulito.png')",
                         backgroundRepeat: "no-repeat",
                         backgroundPosition: "left 69% top 63.5%",
-                        backgroundSize: "160px auto",
+                        backgroundSize: "48px auto",
                       }}
                       aria-label="Texto de la boleta a imprimir"
                       className="mx-auto block resize-none whitespace-pre rounded border border-slate-300 bg-white p-6 font-mono text-black shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
